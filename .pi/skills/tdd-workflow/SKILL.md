@@ -26,8 +26,10 @@ Use this skill to drive implementation with a strict red-green-refactor loop.
 
 2. **Find the test location**
    - Inspect nearby implementation and existing tests.
-   - Choose the closest existing test file when possible.
-   - Create a new test file only when no suitable test location exists.
+   - Write tests for public APIs in separate test files.
+   - Choose the closest existing test file when possible for public API coverage.
+   - Create a new test file only when no suitable public API test location exists.
+   - Write tests for private or local helper functions inline in the implementation file to keep helper validation simple and close to the code.
 
 3. **Red: write a failing test**
    - Add the smallest test that should fail for the current code.
@@ -40,7 +42,7 @@ Use this skill to drive implementation with a strict red-green-refactor loop.
    - Wait for or inspect the automatically reported result and confirm the test passes.
    - If the test still fails after a few focused attempts, stop patching the broad behavior directly and decompose the problem.
    - Identify the smallest helper function that would make the broad implementation straightforward.
-   - Write focused unit tests for that helper first, then implement the helper, then return to the broader failing test.
+   - Write focused inline unit tests for that helper first, then implement the helper, then return to the broader failing test.
    - Apply this recursively: if the helper is still hard to implement, decompose it into smaller tested helpers until each helper is trivial.
 
 5. **Refactor safely**
@@ -62,7 +64,7 @@ Use recursive helper extraction when the green phase is not converging quickly.
 
 1. Pause the broad implementation after a few unsuccessful minimal attempts.
 2. Name the missing helper behavior in plain language.
-3. Add focused unit tests for that helper's inputs, outputs, and edge cases.
+3. Add focused inline unit tests for that helper's inputs, outputs, and edge cases in the implementation file.
 4. Implement only enough helper code to satisfy those helper tests.
 5. Refactor the broad implementation to use the helper.
 6. Repeat the same process for any helper that is still non-trivial.
