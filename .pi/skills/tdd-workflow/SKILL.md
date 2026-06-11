@@ -38,6 +38,10 @@ Use this skill to drive implementation with a strict red-green-refactor loop.
    - Change only the production code needed to satisfy the failing test.
    - Avoid broad refactors, unrelated cleanup, or speculative abstractions.
    - Wait for or inspect the automatically reported result and confirm the test passes.
+   - If the test still fails after a few focused attempts, stop patching the broad behavior directly and decompose the problem.
+   - Identify the smallest helper function that would make the broad implementation straightforward.
+   - Write focused unit tests for that helper first, then implement the helper, then return to the broader failing test.
+   - Apply this recursively: if the helper is still hard to implement, decompose it into smaller tested helpers until each helper is trivial.
 
 5. **Refactor safely**
    - Improve names, structure, comments, or duplication only while tests are green.
@@ -51,6 +55,19 @@ Use this skill to drive implementation with a strict red-green-refactor loop.
    - Summarize tests added or changed.
    - Summarize production changes.
    - List commands run and their results.
+
+## Recursive Helper Extraction
+
+Use recursive helper extraction when the green phase is not converging quickly.
+
+1. Pause the broad implementation after a few unsuccessful minimal attempts.
+2. Name the missing helper behavior in plain language.
+3. Add focused unit tests for that helper's inputs, outputs, and edge cases.
+4. Implement only enough helper code to satisfy those helper tests.
+5. Refactor the broad implementation to use the helper.
+6. Repeat the same process for any helper that is still non-trivial.
+
+Prefer pure, deterministic helpers when possible. Keep helper APIs small and shaped by the tests rather than by speculative future needs.
 
 ## Automatic Feedback
 
