@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { runWorkflowChecks } from "./checks";
 import {
   formatDisabledWorkflowTools,
@@ -21,9 +22,25 @@ export type {
   WorkflowTestSummary,
 } from "./types";
 
+type WorkflowChecksMessageDetails = {
+  userFeedback?: string;
+};
+
+function renderWorkflowChecksMessage(message: { content?: unknown; details?: unknown }, expanded?: boolean): Text {
+  const details = message.details as WorkflowChecksMessageDetails | undefined;
+  const content = typeof message.content === "string" ? message.content : "";
+  const expandedContent = typeof details?.userFeedback === "string" ? details.userFeedback : content;
+  return new Text(expanded ? expandedContent : content, 0, 0);
+}
+
 export default function (pi: ExtensionAPI) {
+  pi.registerMessageRenderer("tdd-workflow-checks", (message, options) =>
+    renderWorkflowChecksMessage(message, options.expanded),
+  );
+
   /** Serializes checks so parallel edit/write tool calls do not run project checks concurrently. */
-  let checkQueue: Promise<{ llmFeedback: string; userFeedback: string }> = Promise.resolve({
+  let checkQueue: Promise<{ summaryFeedback: string; llmFeedback: string; userFeedback: string }> = Promise.resolve({
+    summaryFeedback: "",
     llmFeedback: "",
     userFeedback: "",
   });
@@ -130,8 +147,9 @@ export default function (pi: ExtensionAPI) {
       const feedback = await runWorkflowChecks(pi, ctx);
       pi.sendMessage({
         customType: "tdd-workflow-checks",
-        content: feedback.userFeedback,
+        content: feedback.summaryFeedback,
         display: true,
+        details: { userFeedback: feedback.userFeedback },
       });
       pi.sendMessage({
         customType: "tdd-workflow-checks-llm",
@@ -146,6 +164,9 @@ export default function (pi: ExtensionAPI) {
     handler: async (_args, ctx) => {
       try {
         const result = await runSelfTests(ctx.cwd);
+        if (!ctx.hasUI) {
+          console.log(result);
+        }
         ctx.ui.notify(result, "info");
         pi.sendMessage(
           {
@@ -198,7 +219,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     checkQueue = checkQueue
-      .catch(() => ({ llmFeedback: "", userFeedback: "" }))
+      .catch(() => ({ summaryFeedback: "", llmFeedback: "", userFeedback: "" }))
       .then(() => runWorkflowChecks(pi, ctx));
 
     const feedback = await checkQueue;

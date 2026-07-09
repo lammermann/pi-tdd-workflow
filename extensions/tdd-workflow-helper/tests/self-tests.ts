@@ -1,4 +1,4 @@
-import { buildWorkflowCheckFeedback } from "../checks";
+import { buildWorkflowCheckFeedback, formatWorkflowCheckSummary } from "../checks";
 import {
   formatDisabledWorkflowTools,
   parseWorkflowToggleAction,
@@ -62,10 +62,15 @@ export async function runSelfTests(cwd: string): Promise<string> {
   expectEqual("workflow check user feedback includes summary label", feedback.userSection.includes("Summary"), true);
   expectEqual("workflow check user feedback includes test function output label", feedback.userSection.includes("Test function output"), true);
   expectEqual("workflow check user feedback is full", feedback.userSection.includes("full output"), true);
+  expectEqual(
+    "workflow check summary formats test counts",
+    formatWorkflowCheckSummary({ passed: 1, failed: 0, skipped: 0, total: 1 }, false),
+    "Tests: 1 passed, 0 failed, 0 skipped",
+  );
 
   const projectTestSettings = await loadProjectTestSettings(cwd);
   const projectSettingsResult = projectTestSettings?.runSelfTests?.();
-  return ["TDD workflow helper self-tests passed (17 assertions).", projectSettingsResult]
+  return ["TDD workflow helper self-tests passed (18 assertions).", projectSettingsResult]
     .filter(Boolean)
     .join("\n");
 }

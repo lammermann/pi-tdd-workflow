@@ -5,6 +5,7 @@ import { loadProjectTestSettings } from "./project-settings";
 import { DEFAULT_PROJECT_TEST_SETTINGS_PATH, type WorkflowTestSummary } from "./types";
 
 export type WorkflowCheckFeedback = {
+  summaryFeedback: string;
   llmFeedback: string;
   userFeedback: string;
 };
@@ -13,6 +14,14 @@ export type WorkflowCheckSection = {
   llmSection: string;
   userSection: string;
 };
+
+export function formatWorkflowCheckSummary(summary: WorkflowTestSummary | undefined, failed: boolean): string {
+  if (summary === undefined) {
+    return failed ? "Checks: failed" : "Checks: passed";
+  }
+
+  return `Tests: ${summary.passed} passed, ${summary.failed} failed, ${summary.skipped} skipped`;
+}
 
 export function buildWorkflowCheckFeedback(args: {
   label: string;
@@ -57,7 +66,7 @@ export async function runWorkflowChecks(pi: ExtensionAPI, ctx: ExtensionContext)
     if (projectTestSettings === undefined) {
       failed = true;
       const message = `Project test settings not found at ${DEFAULT_PROJECT_TEST_SETTINGS_PATH}.`;
-      return { llmFeedback: message, userFeedback: message };
+      return { summaryFeedback: message, llmFeedback: message, userFeedback: message };
     }
 
     for (const check of projectTestSettings.checkCommands) {
@@ -111,6 +120,7 @@ export async function runWorkflowChecks(pi: ExtensionAPI, ctx: ExtensionContext)
   }
 
   return {
+    summaryFeedback: formatWorkflowCheckSummary(latestTestSummary, failed),
     llmFeedback: llmSections.join("\n\n"),
     userFeedback: userSections.join("\n\n"),
   };
