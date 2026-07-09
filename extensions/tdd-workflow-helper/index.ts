@@ -128,22 +128,16 @@ export default function (pi: ExtensionAPI) {
     description: "Run the TDD workflow checks without editing files",
     handler: async (_args, ctx) => {
       const feedback = await runWorkflowChecks(pi, ctx);
-      pi.sendMessage(
-        {
-          customType: "tdd-workflow-checks",
-          content: feedback.userFeedback,
-          display: true,
-        },
-        { deliverAs: "nextTurn" },
-      );
-      pi.sendMessage(
-        {
-          customType: "tdd-workflow-checks-llm",
-          content: feedback.llmFeedback,
-          display: false,
-        },
-        { deliverAs: "nextTurn" },
-      );
+      pi.sendMessage({
+        customType: "tdd-workflow-checks",
+        content: feedback.userFeedback,
+        display: true,
+      });
+      pi.sendMessage({
+        customType: "tdd-workflow-checks-llm",
+        content: feedback.llmFeedback,
+        display: false,
+      });
     },
   });
 
