@@ -57,6 +57,16 @@ The extension always resolves this path from the active project root (`ctx.cwd`)
 
 ### Minimal example
 
+A fuller Flutter example is available at:
+
+```text
+examples/flutter/project-test-settings.ts
+```
+
+Copy it to your project's `.pi/project-test-settings.ts` and adjust the test
+target. The same settings mechanism can be used for any other stack by changing
+the commands and output parsing.
+
 ```ts
 import type { ProjectTestSettings } from "./workflow-helper-api";
 
