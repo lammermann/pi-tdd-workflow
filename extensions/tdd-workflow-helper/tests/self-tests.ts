@@ -74,6 +74,11 @@ export async function runSelfTests(cwd: string): Promise<string> {
     formatWorkflowCheckSummary({ passed: 1, failed: 0, skipped: 0, total: 1 }, false),
     "Tests: 1 passed, 0 failed, 0 skipped",
   );
+  expectEqual(
+    "workflow check summary includes additional message",
+    formatWorkflowCheckSummary({ passed: 0, failed: 1, skipped: 0, total: 1, msg: "parse error" }, true),
+    "Tests: 0 passed, 1 failed, 0 skipped — parse error",
+  );
 
   const projectTestSettings = await loadProjectTestSettings(cwd);
   const projectSettingsResult = projectTestSettings?.runSelfTests?.();

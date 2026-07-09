@@ -20,7 +20,8 @@ export function formatWorkflowCheckSummary(summary: WorkflowTestSummary | undefi
     return failed ? "Checks: failed" : "Checks: passed";
   }
 
-  return `Tests: ${summary.passed} passed, ${summary.failed} failed, ${summary.skipped} skipped`;
+  const testCounts = `Tests: ${summary.passed} passed, ${summary.failed} failed, ${summary.skipped} skipped`;
+  return summary.msg === undefined || summary.msg === "" ? testCounts : `${testCounts} — ${summary.msg}`;
 }
 
 export function buildWorkflowCheckFeedback(args: {
@@ -85,10 +86,12 @@ export async function runWorkflowChecks(pi: ExtensionAPI, ctx: ExtensionContext)
         formatCommandOutput,
       });
       latestTestSummary = evaluation.testSummary ?? latestTestSummary;
+      const summaryFailed = (evaluation.testSummary?.failed ?? 0) > 0;
+      failed ||= summaryFailed;
 
       const section = buildWorkflowCheckFeedback({
         label: check.label,
-        ok,
+        ok: ok && !summaryFailed,
         code: result.code,
         killed: result.killed,
         evaluatedOutput: evaluation.output,

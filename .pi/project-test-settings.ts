@@ -6,31 +6,35 @@ import type {
   WorkflowTestSummary,
 } from "./workflow-helper-api";
 
-const FALLBACK_HELPER_SELF_TEST_SUMMARY: WorkflowTestSummary = {
-  passed: 1,
-  failed: 0,
-  skipped: 0,
-  total: 1,
-};
-
 const ASSERTION_COUNT_PATTERN = /passed \((\d+) assertions?\)/g;
 
-function workflowTestSummary(passed: number): WorkflowTestSummary {
-  return { passed, failed: 0, skipped: 0, total: passed };
+function workflowTestSummary(passed: number, failed = 0, msg = ""): WorkflowTestSummary {
+  return { passed, failed, skipped: 0, total: passed + failed, msg };
 }
 
 function helperSelfTestSummary(stdout: string, stderr: string, ok: boolean): WorkflowTestSummary {
+  const output = [stdout, stderr].filter(Boolean).join("\n");
+  const assertionLines = new Set(
+    output
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.match(ASSERTION_COUNT_PATTERN) !== null),
+  );
+  const passed = [...assertionLines].reduce((total, line) => {
+    ASSERTION_COUNT_PATTERN.lastIndex = 0;
+    return total + [...line.matchAll(ASSERTION_COUNT_PATTERN)].reduce(
+      (lineTotal, match) => lineTotal + Number(match[1]),
+      0,
+    );
+  }, 0);
+
   if (!ok) {
-    return { ...FALLBACK_HELPER_SELF_TEST_SUMMARY, passed: 0, failed: 1 };
+    return workflowTestSummary(passed, 1, "self-test command failed");
   }
 
-  const output = [stdout, stderr].filter(Boolean).join("\n");
-  const passed = [...output.matchAll(ASSERTION_COUNT_PATTERN)].reduce(
-    (total, match) => total + Number(match[1]),
-    0,
-  );
-
-  return passed > 0 ? workflowTestSummary(passed) : FALLBACK_HELPER_SELF_TEST_SUMMARY;
+  return passed > 0
+    ? workflowTestSummary(passed)
+    : workflowTestSummary(0, 1, "self-test command passed, but no assertion count was found in its output");
 }
 
 const CHECK_COMMANDS: CheckCommand[] = [
@@ -81,13 +85,16 @@ function evaluateCheck({
   formatCommandOutput,
 }: Parameters<ProjectTestSettings["evaluateCheck"]>[0]) {
   if (check.kind === "selfTest") {
+    const testSummary = helperSelfTestSummary(stdout, stderr, ok);
+    const summaryMessage = testSummary.msg === undefined || testSummary.msg === "" ? "" : `\n${testSummary.msg}`;
+    const continueChecks = ok && testSummary.failed === 0;
     return {
       output: ok
-        ? "TDD workflow helper self-tests passed."
+        ? `TDD workflow helper self-tests passed.${summaryMessage}`
         : formatCommandOutput(stdout, stderr),
-      testSummary: helperSelfTestSummary(stdout, stderr, ok),
-      continueChecks: ok,
-      stopReason: ok ? undefined : "Stopping because the helper self-tests failed.",
+      testSummary,
+      continueChecks,
+      stopReason: continueChecks ? undefined : "Stopping because the helper self-tests failed or its output could not be parsed.",
     };
   }
 
@@ -118,7 +125,7 @@ function runSelfTests(): string {
     "self-test success output",
     evaluateCheck({
       check: CHECK_COMMANDS[1],
-      stdout: "",
+      stdout: "TDD workflow helper self-tests passed (18 assertions).\nProject test settings self-tests passed (4 assertions).",
       stderr: "",
       ok: true,
       formatCommandOutput: (stdout, stderr) => [stdout, stderr].filter(Boolean).join("\n"),
@@ -136,6 +143,54 @@ function runSelfTests(): string {
     }).testSummary?.passed,
     21,
   );
+  const parseErrorEvaluation = evaluateCheck({
+    check: CHECK_COMMANDS[1],
+    stdout: "",
+    stderr: "",
+    ok: true,
+    formatCommandOutput: (stdout, stderr) => [stdout, stderr].filter(Boolean).join("\n"),
+  });
+  expectEqual(
+    "self-test summary reports parse errors without assertion counts",
+    parseErrorEvaluation.testSummary?.msg,
+    "self-test command passed, but no assertion count was found in its output",
+  );
+  expectEqual("self-test parse error stops checks", parseErrorEvaluation.continueChecks, false);
+  expectEqual(
+    "self-test summary deduplicates stdout and stderr",
+    evaluateCheck({
+      check: CHECK_COMMANDS[1],
+      stdout: "TDD workflow helper self-tests passed (18 assertions).\nProject test settings self-tests passed (4 assertions).",
+      stderr: "TDD workflow helper self-tests passed (18 assertions).\nProject test settings self-tests passed (4 assertions).",
+      ok: true,
+      formatCommandOutput: (stdout, stderr) => [stdout, stderr].filter(Boolean).join("\n"),
+    }).testSummary?.passed,
+    22,
+  );
+  const failedWithCountsEvaluation = evaluateCheck({
+    check: CHECK_COMMANDS[1],
+    stdout: "TDD workflow helper self-tests passed (18 assertions).",
+    stderr: "Error: project settings failed",
+    ok: false,
+    formatCommandOutput: (stdout, stderr) => [stdout, stderr].filter(Boolean).join("\n"),
+  });
+  expectEqual("self-test summary counts failed command", failedWithCountsEvaluation.testSummary?.failed, 1);
+  expectEqual("self-test failed command includes partial pass count", failedWithCountsEvaluation.testSummary?.passed, 18);
+  expectEqual("self-test failed command total includes failed command", failedWithCountsEvaluation.testSummary?.total, 19);
+  expectEqual("self-test failed command stops checks", failedWithCountsEvaluation.continueChecks, false);
+
+  const failedWithoutCountsEvaluation = evaluateCheck({
+    check: CHECK_COMMANDS[1],
+    stdout: "",
+    stderr: "Error: project settings failed",
+    ok: false,
+    formatCommandOutput: (stdout, stderr) => [stdout, stderr].filter(Boolean).join("\n"),
+  });
+  expectEqual("self-test failed command without counts has no passed tests", failedWithoutCountsEvaluation.testSummary?.passed, 0);
+  expectEqual("self-test failed command without counts records one failure", failedWithoutCountsEvaluation.testSummary?.failed, 1);
+  expectEqual("self-test failed command without counts total includes failure", failedWithoutCountsEvaluation.testSummary?.total, 1);
+  expectEqual("self-test failed command without counts explains failure", failedWithoutCountsEvaluation.testSummary?.msg, "self-test command failed");
+  expectEqual("self-test failed command without counts stops checks", failedWithoutCountsEvaluation.continueChecks, false);
   expectEqual(
     "conflict marker check continues on success",
     evaluateCheck({

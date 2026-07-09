@@ -14,6 +14,8 @@ export type WorkflowTestSummary = {
   failed: number;
   skipped: number;
   total: number;
+  /** Optional additional information about summary parsing or test execution. */
+  msg?: string;
 };
 
 /** Result returned by project settings after a workflow command finishes. */
