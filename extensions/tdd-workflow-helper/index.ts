@@ -165,7 +165,8 @@ export default function (pi: ExtensionAPI) {
       try {
         const result = await runSelfTests(ctx.cwd);
         if (!ctx.hasUI) {
-          console.log(result);
+          process.stdout.write(`${result}\n`);
+          process.stderr.write(`${result}\n`);
         }
         ctx.ui.notify(result, "info");
         pi.sendMessage(

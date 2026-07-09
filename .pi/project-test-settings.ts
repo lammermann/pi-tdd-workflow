@@ -6,12 +6,32 @@ import type {
   WorkflowTestSummary,
 } from "./workflow-helper-api";
 
-const HELPER_SELF_TEST_SUMMARY: WorkflowTestSummary = {
+const FALLBACK_HELPER_SELF_TEST_SUMMARY: WorkflowTestSummary = {
   passed: 1,
   failed: 0,
   skipped: 0,
   total: 1,
 };
+
+const ASSERTION_COUNT_PATTERN = /passed \((\d+) assertions?\)/g;
+
+function workflowTestSummary(passed: number): WorkflowTestSummary {
+  return { passed, failed: 0, skipped: 0, total: passed };
+}
+
+function helperSelfTestSummary(stdout: string, stderr: string, ok: boolean): WorkflowTestSummary {
+  if (!ok) {
+    return { ...FALLBACK_HELPER_SELF_TEST_SUMMARY, passed: 0, failed: 1 };
+  }
+
+  const output = [stdout, stderr].filter(Boolean).join("\n");
+  const passed = [...output.matchAll(ASSERTION_COUNT_PATTERN)].reduce(
+    (total, match) => total + Number(match[1]),
+    0,
+  );
+
+  return passed > 0 ? workflowTestSummary(passed) : FALLBACK_HELPER_SELF_TEST_SUMMARY;
+}
 
 const CHECK_COMMANDS: CheckCommand[] = [
   {
@@ -65,9 +85,7 @@ function evaluateCheck({
       output: ok
         ? "TDD workflow helper self-tests passed."
         : formatCommandOutput(stdout, stderr),
-      testSummary: ok
-        ? HELPER_SELF_TEST_SUMMARY
-        : { ...HELPER_SELF_TEST_SUMMARY, passed: 0, failed: 1 },
+      testSummary: helperSelfTestSummary(stdout, stderr, ok),
       continueChecks: ok,
       stopReason: ok ? undefined : "Stopping because the helper self-tests failed.",
     };
@@ -80,13 +98,21 @@ function evaluateCheck({
   };
 }
 
-function expectEqual<T>(name: string, actual: T, expected: T): void {
-  if (actual !== expected) {
-    throw new Error(`${name}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
-  }
+function createExpectEqual(): [<T>(name: string, actual: T, expected: T) => void, () => number] {
+  let assertionCount = 0;
+  return [
+    <T>(name: string, actual: T, expected: T): void => {
+      assertionCount += 1;
+      if (actual !== expected) {
+        throw new Error(`${name}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+      }
+    },
+    () => assertionCount,
+  ];
 }
 
 function runSelfTests(): string {
+  const [expectEqual, assertionCount] = createExpectEqual();
   expectEqual("repository detector accepts this repo", isProjectRepository(process.cwd()), true);
   expectEqual(
     "self-test success output",
@@ -100,6 +126,17 @@ function runSelfTests(): string {
     "TDD workflow helper self-tests passed.",
   );
   expectEqual(
+    "self-test summary parses assertion counts",
+    evaluateCheck({
+      check: CHECK_COMMANDS[1],
+      stdout: "TDD workflow helper self-tests passed (18 assertions).\nProject test settings self-tests passed (3 assertions).",
+      stderr: "",
+      ok: true,
+      formatCommandOutput: (stdout, stderr) => [stdout, stderr].filter(Boolean).join("\n"),
+    }).testSummary?.passed,
+    21,
+  );
+  expectEqual(
     "conflict marker check continues on success",
     evaluateCheck({
       check: CHECK_COMMANDS[0],
@@ -111,7 +148,7 @@ function runSelfTests(): string {
     true,
   );
 
-  return "Project test settings self-tests passed (3 assertions).";
+  return `Project test settings self-tests passed (${assertionCount()} assertions).`;
 }
 
 const projectTestSettings: ProjectTestSettings = {

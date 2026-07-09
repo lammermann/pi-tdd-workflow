@@ -7,15 +7,22 @@ import {
 import { mutationGuardReason } from "../mutation-guard";
 import { loadProjectTestSettings } from "../project-settings";
 
-/** Throws when a self-test expectation is not met. */
-function expectEqual<T>(name: string, actual: T, expected: T): void {
-  if (actual !== expected) {
-    throw new Error(`${name}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
-  }
+function createExpectEqual(): [<T>(name: string, actual: T, expected: T) => void, () => number] {
+  let assertionCount = 0;
+  return [
+    <T>(name: string, actual: T, expected: T): void => {
+      assertionCount += 1;
+      if (actual !== expected) {
+        throw new Error(`${name}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+      }
+    },
+    () => assertionCount,
+  ];
 }
 
 /** Runs fast unit tests for the extension's pure formatting/parsing logic. */
 export async function runSelfTests(cwd: string): Promise<string> {
+  const [expectEqual, assertionCount] = createExpectEqual();
   expectEqual("toggle parses enable alias", parseWorkflowToggleAction("enable"), "on");
   expectEqual("toggle parses deactivate alias", parseWorkflowToggleAction("deactivate"), "off");
   expectEqual("toggle rejects unknown action", parseWorkflowToggleAction("maybe"), undefined);
@@ -70,7 +77,7 @@ export async function runSelfTests(cwd: string): Promise<string> {
 
   const projectTestSettings = await loadProjectTestSettings(cwd);
   const projectSettingsResult = projectTestSettings?.runSelfTests?.();
-  return ["TDD workflow helper self-tests passed (18 assertions).", projectSettingsResult]
+  return [`TDD workflow helper self-tests passed (${assertionCount()} assertions).`, projectSettingsResult]
     .filter(Boolean)
     .join("\n");
 }
