@@ -1,13 +1,52 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createJjChangeIfNeeded } from "./jj";
-import { formatCommandOutput } from "./output";
+import { formatCommandOutput, formatFullCommandOutput } from "./output";
 import { loadProjectTestSettings } from "./project-settings";
 import { DEFAULT_PROJECT_TEST_SETTINGS_PATH, type WorkflowTestSummary } from "./types";
 
-/** Runs all workflow checks and returns a concise Markdown summary. */
-export async function runWorkflowChecks(pi: ExtensionAPI, ctx: ExtensionContext): Promise<string> {
+export type WorkflowCheckFeedback = {
+  llmFeedback: string;
+  userFeedback: string;
+};
+
+export type WorkflowCheckSection = {
+  llmSection: string;
+  userSection: string;
+};
+
+export function buildWorkflowCheckFeedback(args: {
+  label: string;
+  ok: boolean;
+  code: number;
+  killed: boolean;
+  evaluatedOutput: string;
+  commandOutput: string;
+}): WorkflowCheckSection {
+  const status = args.ok ? "✅" : "❌";
+  const exitCode = `Exit code: ${args.code}${args.killed ? " (timed out/killed)" : ""}`;
+
+  return {
+    llmSection: [`### ${status} ${args.label}`, exitCode, "```text", args.evaluatedOutput, "```"].join("\n"),
+    userSection: [
+      `### ${status} ${args.label}`,
+      exitCode,
+      "#### Summary",
+      "```text",
+      args.evaluatedOutput,
+      "```",
+      "#### Test function output",
+      "```text",
+      args.commandOutput,
+      "```",
+    ].join("\n"),
+  };
+}
+
+/** Runs all workflow checks and returns concise LLM feedback plus full user-visible feedback. */
+export async function runWorkflowChecks(pi: ExtensionAPI, ctx: ExtensionContext): Promise<WorkflowCheckFeedback> {
   const startedAt = Date.now();
-  const sections: string[] = ["## TDD workflow checks"];
+  const llmSections: string[] = ["## TDD workflow checks"];
+  const userSections: string[] = ["## TDD workflow checks"];
   let failed = false;
   let latestTestSummary: WorkflowTestSummary | undefined;
 
@@ -17,7 +56,8 @@ export async function runWorkflowChecks(pi: ExtensionAPI, ctx: ExtensionContext)
     const projectTestSettings = await loadProjectTestSettings(ctx.cwd);
     if (projectTestSettings === undefined) {
       failed = true;
-      return `Project test settings not found at ${DEFAULT_PROJECT_TEST_SETTINGS_PATH}.`;
+      const message = `Project test settings not found at ${DEFAULT_PROJECT_TEST_SETTINGS_PATH}.`;
+      return { llmFeedback: message, userFeedback: message };
     }
 
     for (const check of projectTestSettings.checkCommands) {
@@ -37,19 +77,21 @@ export async function runWorkflowChecks(pi: ExtensionAPI, ctx: ExtensionContext)
       });
       latestTestSummary = evaluation.testSummary ?? latestTestSummary;
 
-      sections.push(
-        [
-          `### ${ok ? "✅" : "❌"} ${check.label}`,
-          `Exit code: ${result.code}${result.killed ? " (timed out/killed)" : ""}`,
-          "```text",
-          evaluation.output,
-          "```",
-        ].join("\n"),
-      );
+      const section = buildWorkflowCheckFeedback({
+        label: check.label,
+        ok,
+        code: result.code,
+        killed: result.killed,
+        evaluatedOutput: evaluation.output,
+        commandOutput: formatFullCommandOutput(result.stdout, result.stderr),
+      });
+      llmSections.push(section.llmSection);
+      userSections.push(section.userSection);
 
       if (evaluation.continueChecks === false) {
         if (evaluation.stopReason !== undefined) {
-          sections.push(evaluation.stopReason);
+          llmSections.push(evaluation.stopReason);
+          userSections.push(evaluation.stopReason);
         }
         break;
       }
@@ -57,7 +99,8 @@ export async function runWorkflowChecks(pi: ExtensionAPI, ctx: ExtensionContext)
 
     const jjResult = await createJjChangeIfNeeded(pi, ctx, latestTestSummary);
     if (jjResult !== undefined) {
-      sections.push(jjResult);
+      llmSections.push(jjResult);
+      userSections.push(jjResult);
     }
   } finally {
     const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(1);
@@ -67,5 +110,8 @@ export async function runWorkflowChecks(pi: ExtensionAPI, ctx: ExtensionContext)
     );
   }
 
-  return sections.join("\n\n");
+  return {
+    llmFeedback: llmSections.join("\n\n"),
+    userFeedback: userSections.join("\n\n"),
+  };
 }

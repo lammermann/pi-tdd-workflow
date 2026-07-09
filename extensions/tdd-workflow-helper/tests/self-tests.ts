@@ -1,3 +1,4 @@
+import { buildWorkflowCheckFeedback } from "../checks";
 import {
   formatDisabledWorkflowTools,
   parseWorkflowToggleAction,
@@ -32,10 +33,39 @@ export async function runSelfTests(cwd: string): Promise<string> {
     mutationGuardReason("/repo", "/repo/test/foo_test.dart"),
     "modify guarded test file: test/foo_test.dart",
   );
+  expectEqual(
+    "project path guard catches project test settings",
+    mutationGuardReason("/repo", "/repo/.pi/project-test-settings.ts"),
+    "modify guarded project test settings file: .pi/project-test-settings.ts",
+  );
+  expectEqual(
+    "project path guard does not catch nested extension tests by default",
+    mutationGuardReason("/repo", "/repo/extensions/helper/tests/self-tests.ts"),
+    undefined,
+  );
+  expectEqual(
+    "project path guard catches configured extension tests",
+    mutationGuardReason("/repo", "/repo/extensions/helper/tests/self-tests.ts", ["extensions/**/tests/**"]),
+    "modify configured guarded file: extensions/helper/tests/self-tests.ts",
+  );
+
+  const feedback = buildWorkflowCheckFeedback({
+    label: "example check",
+    ok: true,
+    code: 0,
+    killed: false,
+    evaluatedOutput: "filtered output",
+    commandOutput: "full output",
+  });
+  expectEqual("workflow check LLM feedback is filtered", feedback.llmSection.includes("filtered output"), true);
+  expectEqual("workflow check LLM feedback hides full output", feedback.llmSection.includes("full output"), false);
+  expectEqual("workflow check user feedback includes summary label", feedback.userSection.includes("Summary"), true);
+  expectEqual("workflow check user feedback includes test function output label", feedback.userSection.includes("Test function output"), true);
+  expectEqual("workflow check user feedback is full", feedback.userSection.includes("full output"), true);
 
   const projectTestSettings = await loadProjectTestSettings(cwd);
   const projectSettingsResult = projectTestSettings?.runSelfTests?.();
-  return ["TDD workflow helper self-tests passed (9 assertions).", projectSettingsResult]
+  return ["TDD workflow helper self-tests passed (17 assertions).", projectSettingsResult]
     .filter(Boolean)
     .join("\n");
 }

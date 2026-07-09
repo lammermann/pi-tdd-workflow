@@ -59,6 +59,8 @@ export type CheckEvaluation = {
 /** Project-specific test and validation behavior loaded from `.pi/project-test-settings.ts`. */
 export type ProjectTestSettings = {
   checkCommands: CheckCommand[];
+  /** Additional project-relative glob patterns that require user confirmation before edits. */
+  guardedPaths?: string[];
   isProjectRepository(cwd: string): boolean;
   evaluateCheck(args: {
     check: CheckCommand;

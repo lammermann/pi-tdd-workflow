@@ -23,7 +23,10 @@ export type {
 
 export default function (pi: ExtensionAPI) {
   /** Serializes checks so parallel edit/write tool calls do not run project checks concurrently. */
-  let checkQueue: Promise<string> = Promise.resolve("");
+  let checkQueue: Promise<{ llmFeedback: string; userFeedback: string }> = Promise.resolve({
+    llmFeedback: "",
+    userFeedback: "",
+  });
 
   /** Session-local toggle for automatic checks after file mutation tools. */
   let workflowEnabled = false;
@@ -128,8 +131,16 @@ export default function (pi: ExtensionAPI) {
       pi.sendMessage(
         {
           customType: "tdd-workflow-checks",
-          content: feedback,
+          content: feedback.userFeedback,
           display: true,
+        },
+        { deliverAs: "nextTurn" },
+      );
+      pi.sendMessage(
+        {
+          customType: "tdd-workflow-checks-llm",
+          content: feedback.llmFeedback,
+          display: false,
         },
         { deliverAs: "nextTurn" },
       );
@@ -168,7 +179,8 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    const reason = mutationGuardReason(ctx.cwd, targetPath);
+    const projectTestSettings = await loadProjectTestSettings(ctx.cwd);
+    const reason = mutationGuardReason(ctx.cwd, targetPath, projectTestSettings?.guardedPaths);
     if (reason === undefined) {
       return;
     }
@@ -192,22 +204,25 @@ export default function (pi: ExtensionAPI) {
     }
 
     checkQueue = checkQueue
-      .catch(() => "")
+      .catch(() => ({ llmFeedback: "", userFeedback: "" }))
       .then(() => runWorkflowChecks(pi, ctx));
 
     const feedback = await checkQueue;
+    if (ctx.hasUI) {
+      ctx.ui.notify(feedback.userFeedback, "info");
+    }
 
     return {
       content: [
         ...event.content,
         {
           type: "text" as const,
-          text: feedback,
+          text: feedback.llmFeedback,
         },
       ],
       details: {
         ...event.details,
-        tddWorkflowChecks: feedback,
+        tddWorkflowChecks: feedback.llmFeedback,
       },
     };
   });

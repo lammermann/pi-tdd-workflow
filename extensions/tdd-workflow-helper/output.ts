@@ -10,8 +10,12 @@ function truncateOutput(output: string): string {
   return `... truncated ${output.length - MAX_OUTPUT_CHARS} chars ...\n${output.slice(-MAX_OUTPUT_CHARS)}`;
 }
 
+/** Formats complete command output for user-only display. */
+export function formatFullCommandOutput(stdout: string, stderr: string): string {
+  return [stdout.trim(), stderr.trim()].filter(Boolean).join("\n") || "<no output>";
+}
+
 /** Formats command output for inclusion in a tool result. */
 export function formatCommandOutput(stdout: string, stderr: string): string {
-  const combined = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n");
-  return truncateOutput(combined || "<no output>");
+  return truncateOutput(formatFullCommandOutput(stdout, stderr));
 }

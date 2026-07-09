@@ -1,0 +1,4 @@
+{
+  "extensions": ["../extensions/tdd-workflow-helper"],
+  "skills": ["../skills"]
+}
