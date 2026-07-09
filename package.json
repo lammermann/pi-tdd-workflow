@@ -1,0 +1,24 @@
+{
+  "name": "pi-tdd-workflow-helper",
+  "version": "0.1.0",
+  "description": "Language-agnostic TDD workflow helper extension and skill for pi.",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "tdd",
+    "workflow"
+  ],
+  "license": "UNLICENSED",
+  "private": true,
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/tdd-workflow-helper/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  }
+}
