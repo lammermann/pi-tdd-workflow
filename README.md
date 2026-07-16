@@ -3,7 +3,8 @@
 Pi package that bundles:
 
 - the `tdd-workflow-helper` extension,
-- the `tdd-workflow` skill.
+- the `tdd-workflow` skill,
+- the `project-test-settings` skill.
 
 The extension is language agnostic. Add `.pi/project-test-settings.ts` to each
 project to adapt the workflow to that project's language, toolchain, framework,
@@ -35,6 +36,8 @@ extensions/tdd-workflow-helper/
   examples/flutter/project-test-settings.ts
   tests/self-tests.ts
 skills/tdd-workflow/
+  SKILL.md
+skills/project-test-settings/
   SKILL.md
 ```
 
