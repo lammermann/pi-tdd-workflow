@@ -1,34 +1,31 @@
 import { buildWorkflowCheckFeedback, formatWorkflowCheckSummary } from "../checks";
 import {
   formatDisabledWorkflowTools,
+  parseSupervisionModeCommand,
   parseWorkflowToggleAction,
   parseWorkflowToolCommand,
 } from "../commands";
-import { mutationGuardReason } from "../mutation-guard";
+import { guardedMutationRejectionMessage, mutationGuardReason } from "../mutation-guard";
 import { loadProjectTestSettings } from "../project-settings";
-
-function createExpectEqual(): [<T>(name: string, actual: T, expected: T) => void, () => number] {
-  let assertionCount = 0;
-  return [
-    <T>(name: string, actual: T, expected: T): void => {
-      assertionCount += 1;
-      if (actual !== expected) {
-        throw new Error(`${name}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
-      }
-    },
-    () => assertionCount,
-  ];
-}
 
 /** Runs fast unit tests for the extension's pure formatting/parsing logic. */
 export async function runSelfTests(cwd: string): Promise<string> {
   const [expectEqual, assertionCount] = createExpectEqual();
+  // command parsing
   expectEqual("toggle parses enable alias", parseWorkflowToggleAction("enable"), "on");
   expectEqual("toggle parses deactivate alias", parseWorkflowToggleAction("deactivate"), "off");
   expectEqual("toggle rejects unknown action", parseWorkflowToggleAction("maybe"), undefined);
   expectEqual("tool policy parses disable", parseWorkflowToolCommand("disable bash")?.action, "disable");
   expectEqual("tool policy parses enable tool", parseWorkflowToolCommand("allow bash")?.tool, "bash");
   expectEqual("tool policy formats empty list", formatDisabledWorkflowTools(new Set()), "none");
+  expectEqual("supervision mode defaults to status", parseSupervisionModeCommand("")?.action, "status");
+  expectEqual("supervision mode parses unsupervised", parseSupervisionModeCommand("unsupervised")?.action, "unsupervised");
+  expectEqual("supervision mode parses common typo", parseSupervisionModeCommand("unsuperwised")?.action, "unsupervised");
+  expectEqual("supervision mode parses supervised", parseSupervisionModeCommand("supervised")?.action, "supervised");
+  expectEqual("supervision mode parses auto", parseSupervisionModeCommand("auto")?.action, "auto");
+  expectEqual("supervision mode rejects unknown action", parseSupervisionModeCommand("maybe"), undefined);
+
+  // project modification guard
   expectEqual("project path guard allows lib file", mutationGuardReason("/repo", "/repo/lib/main.dart"), undefined);
   expectEqual(
     "project path guard catches outside file",
@@ -55,7 +52,24 @@ export async function runSelfTests(cwd: string): Promise<string> {
     mutationGuardReason("/repo", "/repo/extensions/helper/tests/self-tests.ts", ["extensions/**/tests/**"]),
     "modify configured guarded file: extensions/helper/tests/self-tests.ts",
   );
+  // TODO test different reaction in supervised and unsupervised mode
+  expectEqual(
+    "test modification rejection gives implementation guidance",
+    guardedMutationRejectionMessage("modify guarded test file: test/foo_test.dart"),
+    "Modification of tests rejected. Implement them instead. If not possible cleanly add a note in test_suggestions.adoc and go on with the other tests.",
+  );
+  expectEqual(
+    "configured test modification rejection gives implementation guidance",
+    guardedMutationRejectionMessage("modify configured guarded file: extensions/helper/tests/self-tests.ts"),
+    "Modification of tests rejected. Implement them instead. If not possible cleanly add a note in test_suggestions.adoc and go on with the other tests.",
+  );
+  expectEqual(
+    "outside project rejection forbids retries",
+    guardedMutationRejectionMessage("modify file outside the project directory: /tmp/file.txt"),
+    "Modifications outside the project are not permitted. Do not try it again.",
+  );
 
+  // workflow feedback
   const feedback = buildWorkflowCheckFeedback({
     label: "example check",
     ok: true,
@@ -86,3 +100,19 @@ export async function runSelfTests(cwd: string): Promise<string> {
     .filter(Boolean)
     .join("\n");
 }
+
+/** Helper function: Create an assert function that counts the number of assertions
+*/
+function createExpectEqual(): [<T>(name: string, actual: T, expected: T) => void, () => number] {
+  let assertionCount = 0;
+  return [
+    <T>(name: string, actual: T, expected: T): void => {
+      assertionCount += 1;
+      if (actual !== expected) {
+        throw new Error(`${name}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+      }
+    },
+    () => assertionCount,
+  ];
+}
+

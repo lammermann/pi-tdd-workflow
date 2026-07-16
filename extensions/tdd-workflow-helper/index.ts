@@ -3,11 +3,16 @@ import { Text } from "@earendil-works/pi-tui";
 import { runWorkflowChecks } from "./checks";
 import {
   formatDisabledWorkflowTools,
+  parseSupervisionModeCommand,
   parseWorkflowToggleAction,
   parseWorkflowToolCommand,
   workflowStatusMessage,
 } from "./commands";
-import { mutationGuardReason, resolveMutationTargetPath } from "./mutation-guard";
+import {
+  guardedMutationRejectionMessage,
+  mutationGuardReason,
+  resolveMutationTargetPath,
+} from "./mutation-guard";
 import { loadProjectTestSettings } from "./project-settings";
 import { runSelfTests } from "./tests/self-tests";
 import {
@@ -15,10 +20,12 @@ import {
   DEFAULT_WORKFLOW_DISABLED_TOOLS,
   MUTATION_TOOLS,
 } from "./types";
+import type { SupervisionMode } from "./types";
 export type {
   CheckCommand,
   CheckEvaluation,
   ProjectTestSettings,
+  SupervisionMode,
   WorkflowTestSummary,
 } from "./types";
 
@@ -48,37 +55,21 @@ export default function (pi: ExtensionAPI) {
   /** Session-local toggle for automatic checks after file mutation tools. */
   let workflowEnabled = false;
 
+  /** Session-local override for whether mutation tools should be considered supervised. */
+  let supervisionMode: SupervisionMode = "auto";
+
   /** Tool names disabled while the workflow is active. */
   const workflowDisabledTools = new Set(DEFAULT_WORKFLOW_DISABLED_TOOLS);
 
   /** Active tool names captured before applying the workflow tool policy. */
   let activeToolsBeforeWorkflow: string[] | undefined;
 
-  /** Reads active tool names, normalizing possible tool metadata objects. */
-  function getActiveToolNames(): string[] {
-    const activeTools = pi.getActiveTools() as unknown as Array<string | { name: string }>;
-    return activeTools.map((tool) => (typeof tool === "string" ? tool : tool.name));
-  }
-
-  /** Applies or restores the active-tool policy associated with the workflow. */
-  function applyWorkflowToolPolicy(enabled: boolean): void {
-    if (enabled) {
-      activeToolsBeforeWorkflow ??= getActiveToolNames();
-      pi.setActiveTools(getActiveToolNames().filter((toolName) => !workflowDisabledTools.has(toolName)));
-      return;
-    }
-
-    if (activeToolsBeforeWorkflow !== undefined) {
-      pi.setActiveTools(activeToolsBeforeWorkflow);
-      activeToolsBeforeWorkflow = undefined;
-    }
-  }
-
   pi.on("session_start", async (_event, ctx) => {
     const projectTestSettings = await loadProjectTestSettings(ctx.cwd);
     workflowEnabled = projectTestSettings?.isProjectRepository(ctx.cwd) ?? false;
     applyWorkflowToolPolicy(workflowEnabled);
     ctx.ui.setStatus("tdd-workflow", workflowEnabled ? "workflow: on" : "workflow: off");
+    ctx.ui.setStatus("tdd-supervision", `supervision: ${supervisionMode}`);
 
     if (ctx.hasUI) {
       ctx.ui.notify(
@@ -109,6 +100,25 @@ export default function (pi: ExtensionAPI) {
       applyWorkflowToolPolicy(workflowEnabled);
       ctx.ui.setStatus("tdd-workflow", workflowEnabled ? "workflow: on" : "workflow: off");
       ctx.ui.notify(workflowStatusMessage(workflowEnabled), "info");
+    },
+  });
+
+  pi.registerCommand("tdd-workflow-supervision", {
+    description: "Set whether edit/write tools are supervised, unsupervised, or auto-detected",
+    handler: async (args, ctx) => {
+      const command = parseSupervisionModeCommand(args);
+
+      if (command === undefined) {
+        ctx.ui.notify("Usage: /tdd-workflow-supervision [auto|supervised|unsupervised|status]", "error");
+        return;
+      }
+
+      if (command.action !== "status") {
+        supervisionMode = command.action;
+      }
+
+      ctx.ui.setStatus("tdd-supervision", `supervision: ${supervisionMode}`);
+      ctx.ui.notify(`TDD workflow supervision mode is ${supervisionMode}.`, "info");
     },
   });
 
@@ -189,27 +199,31 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
+    const projectTestSettings = await loadProjectTestSettings(ctx.cwd);
     const targetPath = resolveMutationTargetPath(ctx.cwd, event.input);
     if (targetPath === undefined) {
       return;
     }
 
-    const projectTestSettings = await loadProjectTestSettings(ctx.cwd);
     const reason = mutationGuardReason(ctx.cwd, targetPath, projectTestSettings?.guardedPaths);
     if (reason === undefined) {
       return;
     }
 
-    if (!ctx.hasUI) {
-      return {
-        block: true,
-        reason: `Blocked guarded modification without interactive confirmation: ${reason}`,
-      };
+    if (isUnsupervisedMode(ctx)) {
+      const rejectionMessage = guardedMutationRejectionMessage(reason);
+      const alwaysReject =
+        rejectionMessage.startsWith("Modification of tests rejected.") ||
+        rejectionMessage.startsWith("Modifications outside the project are not permitted.");
+
+      if (alwaysReject) {
+        return { block: true, reason: rejectionMessage };
+      }
     }
 
     const approved = await ctx.ui.confirm("Guarded file modification", `Allow pi to ${reason}?`);
     if (!approved) {
-      return { block: true, reason: `User rejected guarded modification: ${reason}` };
+      return { block: true, reason: reason };
     }
   });
 
@@ -241,4 +255,38 @@ export default function (pi: ExtensionAPI) {
       },
     };
   });
+
+  /** ==================================================================== */
+  /** Helper functions */
+
+  /** Reads active tool names, normalizing possible tool metadata objects. */
+  function getActiveToolNames(): string[] {
+    const activeTools = pi.getActiveTools() as unknown as Array<string | { name: string }>;
+    return activeTools.map((tool) => (typeof tool === "string" ? tool : tool.name));
+  }
+
+  /** Applies or restores the active-tool policy associated with the workflow. */
+  function applyWorkflowToolPolicy(enabled: boolean): void {
+    if (enabled) {
+      activeToolsBeforeWorkflow ??= getActiveToolNames();
+      pi.setActiveTools(getActiveToolNames().filter((toolName) => !workflowDisabledTools.has(toolName)));
+      return;
+    }
+
+    if (activeToolsBeforeWorkflow !== undefined) {
+      pi.setActiveTools(activeToolsBeforeWorkflow);
+      activeToolsBeforeWorkflow = undefined;
+    }
+  }
+
+  function isUnsupervisedMode(ctx): boolean {
+    if (supervisionMode === "unsupervised") {
+      return true;
+    }
+    if (supervisionMode === "auto" && !ctx.hasUI) {
+      return true;
+    }
+
+    return false;
+  }
 }

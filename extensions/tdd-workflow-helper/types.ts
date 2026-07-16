@@ -13,6 +13,12 @@ export type WorkflowToggleAction = "on" | "off" | "status";
 /** User-facing actions supported by the workflow tool policy command. */
 export type WorkflowToolAction = "disable" | "enable" | "status";
 
+/** Session-local supervision mode for mutation tools. */
+export type SupervisionMode = "auto" | "supervised" | "unsupervised";
+
+/** User-facing actions supported by the supervision mode command. */
+export type SupervisionModeAction = SupervisionMode | "status";
+
 /**
  * Structural mirror of `.pi/workflow-helper-api.ts` used for dynamic settings.
  *

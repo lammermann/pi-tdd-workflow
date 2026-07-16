@@ -57,6 +57,33 @@ export function resolveMutationTargetPath(cwd: string, input: unknown): string |
   return resolve(cwd, rawPath.startsWith("@") ? rawPath.slice(1) : rawPath);
 }
 
+const TEST_MODIFICATION_REJECTION_MESSAGE =
+  "Modification of tests rejected. Implement them instead. If not possible cleanly add a note in test_suggestions.adoc and go on with the other tests.";
+
+const OUTSIDE_PROJECT_REJECTION_MESSAGE =
+  "Modifications outside the project are not permitted. Do not try it again.";
+
+/** Builds the rejection message required when a guarded mutation cannot be confirmed. */
+export function guardedMutationRejectionMessage(reason: string): string {
+  const guardedPath = reason.split(": ").slice(1).join(": ");
+  if (
+    reason.startsWith("modify guarded test file:") ||
+    guardedPath === "test" ||
+    guardedPath.startsWith("test/") ||
+    guardedPath === "tests" ||
+    guardedPath.startsWith("tests/") ||
+    guardedPath.includes("/test/") ||
+    guardedPath.includes("/tests/")
+  ) {
+    return TEST_MODIFICATION_REJECTION_MESSAGE;
+  }
+  if (reason.startsWith("modify file outside the project directory:")) {
+    return OUTSIDE_PROJECT_REJECTION_MESSAGE;
+  }
+
+  return `Modification rejected because this path is guarded: ${reason}`;
+}
+
 /** Builds the confirmation message required before guarded mutations. */
 export function mutationGuardReason(
   cwd: string,

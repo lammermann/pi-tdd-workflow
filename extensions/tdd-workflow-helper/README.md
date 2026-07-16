@@ -12,6 +12,7 @@ The helper can:
 
 - run project-defined checks after successful `edit`/`write` tool calls,
 - block or confirm guarded edits outside the project or inside top-level `test/` / `tests/` folders,
+- reject restricted `edit`/`write` calls when pi is running without an interactive supervisor,
 - create a new `jj` change after successful test feedback.
 - auto-enable itself for matching projects,
 - temporarily disable selected tools while the workflow is active,
@@ -20,6 +21,7 @@ The helper can:
 
 ```text
 /tdd-workflow [on|off|status]
+/tdd-workflow-supervision [auto|supervised|unsupervised|status]
 /tdd-workflow-tools [status|disable <tool>|enable <tool>]
 /tdd-workflow-checks
 /tdd-workflow-helper-test
@@ -54,6 +56,16 @@ framework:
 ```
 
 The extension always resolves this path from the active project root (`ctx.cwd`), so the extension may live inside the project or in a global/user extension directory such as `~/.pi/extensions`.
+
+### Supervision mode
+
+Use this before handing off an interactive session:
+
+```text
+/tdd-workflow-supervision unsupervised
+```
+
+While in `unsupervised` mode, normal implementation edits can continue, but guarded paths are rejected instead of prompting for confirmation. Switch back with `/tdd-workflow-supervision supervised` or `/tdd-workflow-supervision auto`.
 
 ### Minimal example
 
@@ -113,6 +125,7 @@ The extension intentionally does not statically import this project-local file, 
 `ProjectTestSettings` provides:
 
 - `checkCommands`: ordered commands to run.
+- `guardedPaths?`: additional project-relative glob patterns that require confirmation in supervised mode and are rejected in unsupervised mode.
 - `isProjectRepository(cwd)`: auto-enable predicate for the current project.
 - `evaluateCheck(...)`: converts command results into user-facing output and controls whether later checks continue.
 - `runSelfTests?()`: optional project-specific self-tests run by `/tdd-workflow-helper-test`.

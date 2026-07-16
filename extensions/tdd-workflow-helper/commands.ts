@@ -1,4 +1,4 @@
-import type { WorkflowToggleAction, WorkflowToolAction } from "./types";
+import type { SupervisionModeAction, WorkflowToggleAction, WorkflowToolAction } from "./types";
 
 /** Parses the optional workflow toggle command argument. */
 export function parseWorkflowToggleAction(args: string): WorkflowToggleAction | undefined {
@@ -35,6 +35,26 @@ export function parseWorkflowToolCommand(args: string): { action: WorkflowToolAc
   }
   if (["enable", "allow", "on", "add"].includes(rawAction)) {
     return { action: "enable", tool };
+  }
+
+  return undefined;
+}
+
+/** Parses the supervision mode command argument. */
+export function parseSupervisionModeCommand(args: string): { action: SupervisionModeAction } | undefined {
+  const normalized = args.trim().toLowerCase();
+
+  if (normalized === "" || normalized === "status") {
+    return { action: "status" };
+  }
+  if (["auto", "automatic", "default"].includes(normalized)) {
+    return { action: "auto" };
+  }
+  if (["supervised", "supervise", "interactive"].includes(normalized)) {
+    return { action: "supervised" };
+  }
+  if (["unsupervised", "unsuperwised", "unsupervise", "unattended", "away"].includes(normalized)) {
+    return { action: "unsupervised" };
   }
 
   return undefined;

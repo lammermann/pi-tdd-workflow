@@ -49,6 +49,7 @@ The repository-local development paths link back into this package:
 
 ```text
 /tdd-workflow [on|off|status]
+/tdd-workflow-supervision [auto|supervised|unsupervised|status]
 /tdd-workflow-tools [status|disable <tool>|enable <tool>]
 /tdd-workflow-checks
 /tdd-workflow-helper-test
