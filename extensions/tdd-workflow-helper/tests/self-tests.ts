@@ -1,4 +1,4 @@
-import { buildWorkflowCheckFeedback, formatWorkflowCheckSummary } from "../checks";
+import { buildWorkflowCheckFeedback, formatWorkflowCheckSummary, shouldContinueWorkflowChecks } from "../checks";
 import {
   formatDisabledWorkflowTools,
   parseSupervisionModeCommand,
@@ -92,6 +92,26 @@ export async function runSelfTests(cwd: string): Promise<string> {
     "workflow check summary includes additional message",
     formatWorkflowCheckSummary({ passed: 0, failed: 1, skipped: 0, total: 1, msg: "parse error" }, true),
     "Tests: 0 passed, 1 failed, 0 skipped — parse error",
+  );
+  expectEqual(
+    "workflow checks continue after a passing command",
+    shouldContinueWorkflowChecks({ ok: true, testSummary: { passed: 1, failed: 0, skipped: 0, total: 1 } }),
+    true,
+  );
+  expectEqual(
+    "workflow checks stop after a failing command exit",
+    shouldContinueWorkflowChecks({ ok: false }),
+    false,
+  );
+  expectEqual(
+    "workflow checks stop after a failing test summary",
+    shouldContinueWorkflowChecks({ ok: true, testSummary: { passed: 0, failed: 1, skipped: 0, total: 1 } }),
+    false,
+  );
+  expectEqual(
+    "workflow checks honor explicit project stop",
+    shouldContinueWorkflowChecks({ ok: true, continueChecks: false }),
+    false,
   );
 
   const projectTestSettings = await loadProjectTestSettings(cwd);

@@ -36,7 +36,7 @@ export type SupervisionModeAction = SupervisionMode | "status";
  * structural mirror.
  */
 
-/** Validation command executed after each successful file mutation. */
+/** Validation command executed after each successful file mutation. Commands run in order and stop at the first failure. */
 export type CheckCommand = {
   label: string;
   command: string;
@@ -60,12 +60,14 @@ export type WorkflowTestSummary = {
 export type CheckEvaluation = {
   output: string;
   testSummary?: WorkflowTestSummary;
+  /** Set to false to stop before later checks even when the command itself passed. */
   continueChecks?: boolean;
   stopReason?: string;
 };
 
 /** Project-specific test and validation behavior loaded from `.pi/project-test-settings.ts`. */
 export type ProjectTestSettings = {
+  /** Ordered checks; later commands are hidden until earlier commands pass. */
   checkCommands: CheckCommand[];
   /** Additional project-relative glob patterns that require user confirmation before edits. */
   guardedPaths?: string[];

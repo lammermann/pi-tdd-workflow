@@ -24,6 +24,18 @@ export function formatWorkflowCheckSummary(summary: WorkflowTestSummary | undefi
   return summary.msg === undefined || summary.msg === "" ? testCounts : `${testCounts} — ${summary.msg}`;
 }
 
+export function shouldContinueWorkflowChecks(args: {
+  ok: boolean;
+  testSummary?: WorkflowTestSummary;
+  continueChecks?: boolean;
+}): boolean {
+  if (args.continueChecks === false) {
+    return false;
+  }
+
+  return args.ok && (args.testSummary?.failed ?? 0) === 0;
+}
+
 export function buildWorkflowCheckFeedback(args: {
   label: string;
   ok: boolean;
@@ -52,7 +64,7 @@ export function buildWorkflowCheckFeedback(args: {
   };
 }
 
-/** Runs all workflow checks and returns concise LLM feedback plus full user-visible feedback. */
+/** Runs workflow checks in order until the first failure and returns concise LLM plus full user-visible feedback. */
 export async function runWorkflowChecks(pi: ExtensionAPI, ctx: ExtensionContext): Promise<WorkflowCheckFeedback> {
   const startedAt = Date.now();
   const llmSections: string[] = ["## TDD workflow checks"];
@@ -100,11 +112,18 @@ export async function runWorkflowChecks(pi: ExtensionAPI, ctx: ExtensionContext)
       llmSections.push(section.llmSection);
       userSections.push(section.userSection);
 
-      if (evaluation.continueChecks === false) {
-        if (evaluation.stopReason !== undefined) {
-          llmSections.push(evaluation.stopReason);
-          userSections.push(evaluation.stopReason);
-        }
+      const shouldContinue = shouldContinueWorkflowChecks({
+        ok,
+        testSummary: evaluation.testSummary,
+        continueChecks: evaluation.continueChecks,
+      });
+      if (!shouldContinue) {
+        failed = true;
+        const stopReason =
+          evaluation.stopReason ??
+          `Stopping before later checks because ${check.label} did not pass. Fix checks in order.`;
+        llmSections.push(stopReason);
+        userSections.push(stopReason);
         break;
       }
     }

@@ -10,7 +10,7 @@ detection rules.
 
 The helper can:
 
-- run project-defined checks after successful `edit`/`write` tool calls,
+- run project-defined checks in order after successful `edit`/`write` tool calls, stopping at the first failing check,
 - block or confirm guarded edits outside the project or inside top-level `test/` / `tests/` folders,
 - reject restricted `edit`/`write` calls when pi is running without an interactive supervisor,
 - create a new `jj` change after successful test feedback.
@@ -124,10 +124,10 @@ The extension intentionally does not statically import this project-local file, 
 
 `ProjectTestSettings` provides:
 
-- `checkCommands`: ordered commands to run.
+- `checkCommands`: ordered commands to run. Later commands are hidden until earlier commands pass.
 - `guardedPaths?`: additional project-relative glob patterns that require confirmation in supervised mode and are rejected in unsupervised mode.
 - `isProjectRepository(cwd)`: auto-enable predicate for the current project.
-- `evaluateCheck(...)`: converts command results into user-facing output and controls whether later checks continue.
+- `evaluateCheck(...)`: converts command results into user-facing output and can explicitly stop later checks with `continueChecks: false`.
 - `runSelfTests?()`: optional project-specific self-tests run by `/tdd-workflow-helper-test`.
 
 ## Notes for future extraction
