@@ -56,6 +56,28 @@ export function createFakeContext(cwd: string, options: { hasUI?: boolean; confi
   };
 }
 
+export function createFakeRegistrationPi() {
+  const commands = new Map<string, { description: string; handler: unknown }>();
+  const eventHandlers = new Map<string, unknown[]>();
+  const messageRenderers = new Map<string, unknown>();
+  return {
+    commands,
+    eventHandlers,
+    messageRenderers,
+    pi: {
+      registerCommand: (name: string, command: { description: string; handler: unknown }) => commands.set(name, command),
+      on: (eventName: string, handler: unknown) => {
+        eventHandlers.set(eventName, [...(eventHandlers.get(eventName) ?? []), handler]);
+      },
+      registerMessageRenderer: (type: string, renderer: unknown) => messageRenderers.set(type, renderer),
+      getActiveTools: () => [],
+      setActiveTools: () => undefined,
+      sendMessage: () => undefined,
+      exec: async () => execResult(),
+    },
+  };
+}
+
 export function createFakeExtensionPi(options: { activeTools?: string[]; execResults?: FakeExecResult[] } = {}) {
   let activeTools = [...(options.activeTools ?? [])];
   const sentMessages: Array<{ message; options? }> = [];
