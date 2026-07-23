@@ -10,6 +10,20 @@ export type FakeExecResult = {
 export type FakeExecCall = {
   command: string;
   args: string[];
+  options?: unknown;
+};
+
+export type FakeContext = ReturnType<typeof createFakeContext>;
+
+export type FakeMessage = {
+  customType?: string;
+  content?: unknown;
+  display?: boolean;
+  details?: { userFeedback?: unknown } & Record<string, unknown>;
+};
+
+export type FakeMessageOptions = {
+  deliverAs?: string;
 };
 
 export function execResult(overrides: Partial<FakeExecResult> & { commandOutput?: string } = {}): FakeExecResult {
@@ -21,13 +35,13 @@ export function execResult(overrides: Partial<FakeExecResult> & { commandOutput?
   };
 }
 
-export function createFakePi(results: FakeExecResult[]): { pi: { exec(command: string, args: string[]): Promise<FakeExecResult> }; calls: FakeExecCall[] } {
+export function createFakePi(results: FakeExecResult[]): { pi: { exec(command: string, args: string[], options?: unknown): Promise<FakeExecResult> }; calls: FakeExecCall[] } {
   const calls: FakeExecCall[] = [];
   return {
     calls,
     pi: {
-      exec: async (command: string, args: string[]) => {
-        calls.push({ command, args });
+      exec: async (command: string, args: string[], options?: unknown) => {
+        calls.push({ command, args, options });
         return results.shift() ?? execResult();
       },
     },
@@ -46,8 +60,12 @@ export function createFakeContext(cwd: string, options: { hasUI?: boolean; confi
     notifications,
     confirmations,
     ui: {
-      setStatus: (key: string, value: string) => statuses.push({ key, value }),
-      notify: (message: string, level: string) => notifications.push({ message, level }),
+      setStatus: (key: string, value: string): void => {
+        statuses.push({ key, value });
+      },
+      notify: (message: string, level: string): void => {
+        notifications.push({ message, level });
+      },
       confirm: async (title: string, message: string) => {
         confirmations.push({ title, message });
         return options.confirmResult ?? true;
@@ -71,16 +89,16 @@ export function createFakeRegistrationPi() {
       },
       registerMessageRenderer: (type: string, renderer: unknown) => messageRenderers.set(type, renderer),
       getActiveTools: () => [],
-      setActiveTools: () => undefined,
-      sendMessage: () => undefined,
-      exec: async () => execResult(),
+      setActiveTools: (_tools: string[]): void => undefined,
+      sendMessage: (_message: FakeMessage, _messageOptions?: FakeMessageOptions): void => undefined,
+      exec: async (_command: string, _args: string[], _options?: unknown) => execResult(),
     },
   };
 }
 
 export function createFakeExtensionPi(options: { activeTools?: string[]; execResults?: FakeExecResult[] } = {}) {
   let activeTools = [...(options.activeTools ?? [])];
-  const sentMessages: Array<{ message; options? }> = [];
+  const sentMessages: Array<{ message: FakeMessage; options?: FakeMessageOptions }> = [];
   const activeToolHistory: string[][] = [];
   const execFake = createFakePi(options.execResults ?? []);
 
@@ -95,7 +113,9 @@ export function createFakeExtensionPi(options: { activeTools?: string[]; execRes
         activeTools = [...tools];
         activeToolHistory.push([...tools]);
       },
-      sendMessage: (message, messageOptions?) => sentMessages.push({ message, options: messageOptions }),
+      sendMessage: (message: FakeMessage, messageOptions?: FakeMessageOptions): void => {
+        sentMessages.push({ message, options: messageOptions });
+      },
     },
     get activeTools() {
       return activeTools;
