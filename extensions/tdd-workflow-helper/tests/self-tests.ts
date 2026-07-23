@@ -1,29 +1,53 @@
-import { buildWorkflowCheckFeedback, formatWorkflowCheckSummary, shouldContinueWorkflowChecks } from "../checks";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { buildWorkflowCheckFeedback, formatWorkflowCheckSummary, runWorkflowChecks, shouldContinueWorkflowChecks } from "../checks";
 import {
   formatDisabledWorkflowTools,
   parseSupervisionModeCommand,
   parseWorkflowToggleAction,
   parseWorkflowToolCommand,
 } from "../commands";
-import { guardedMutationRejectionMessage, mutationGuardReason } from "../mutation-guard";
+import { createJjChangeIfNeeded } from "../jj";
+import { guardedMutationRejectionMessage, mutationGuardReason, resolveMutationTargetPath } from "../mutation-guard";
+import { formatCommandOutput, formatFullCommandOutput } from "../output";
 import { loadProjectTestSettings } from "../project-settings";
 
 /** Runs fast unit tests for the extension's pure formatting/parsing logic. */
 export async function runSelfTests(cwd: string): Promise<string> {
   const [expectEqual, assertionCount] = createExpectEqual();
   // command parsing
+  expectEqual("toggle defaults to status so users can inspect without changing state", parseWorkflowToggleAction(""), "status");
   expectEqual("toggle parses enable alias", parseWorkflowToggleAction("enable"), "on");
+  expectEqual("toggle parses activate alias", parseWorkflowToggleAction("activated"), "on");
   expectEqual("toggle parses deactivate alias", parseWorkflowToggleAction("deactivate"), "off");
+  expectEqual("toggle parses disable alias", parseWorkflowToggleAction("disabled"), "off");
   expectEqual("toggle rejects unknown action", parseWorkflowToggleAction("maybe"), undefined);
+  expectEqual("tool policy defaults to status so users can inspect disabled tools", parseWorkflowToolCommand("")?.action, "status");
   expectEqual("tool policy parses disable", parseWorkflowToolCommand("disable bash")?.action, "disable");
+  expectEqual("tool policy parses deny alias", parseWorkflowToolCommand("deny bash")?.action, "disable");
+  expectEqual("tool policy parses remove alias", parseWorkflowToolCommand("remove bash")?.action, "disable");
   expectEqual("tool policy parses enable tool", parseWorkflowToolCommand("allow bash")?.tool, "bash");
+  expectEqual("tool policy parses add alias", parseWorkflowToolCommand("add bash")?.action, "enable");
+  expectEqual("tool policy rejects incomplete mutation", parseWorkflowToolCommand("disable"), undefined);
+  expectEqual("tool policy rejects ambiguous mutation", parseWorkflowToolCommand("disable bash edit"), undefined);
   expectEqual("tool policy formats empty list", formatDisabledWorkflowTools(new Set()), "none");
+  expectEqual("tool policy formats sorted names for stable status text", formatDisabledWorkflowTools(new Set(["write", "bash", "edit"])), "bash, edit, write");
   expectEqual("supervision mode defaults to status", parseSupervisionModeCommand("")?.action, "status");
   expectEqual("supervision mode parses unsupervised", parseSupervisionModeCommand("unsupervised")?.action, "unsupervised");
   expectEqual("supervision mode parses common typo", parseSupervisionModeCommand("unsuperwised")?.action, "unsupervised");
   expectEqual("supervision mode parses supervised", parseSupervisionModeCommand("supervised")?.action, "supervised");
   expectEqual("supervision mode parses auto", parseSupervisionModeCommand("auto")?.action, "auto");
   expectEqual("supervision mode rejects unknown action", parseSupervisionModeCommand("maybe"), undefined);
+
+  // output formatting
+  expectEqual("full command output explains silent commands", formatFullCommandOutput("", ""), "<no output>");
+  expectEqual("full command output preserves stdout", formatFullCommandOutput("hello\n", ""), "hello");
+  expectEqual("full command output preserves stderr", formatFullCommandOutput("", "warn\n"), "warn");
+  expectEqual("full command output keeps stdout before stderr", formatFullCommandOutput("out\n", "err\n"), "out\nerr");
+  const longOutput = `${"a".repeat(4100)}tail`;
+  expectEqual("LLM command output truncates old content", formatCommandOutput(longOutput, "").startsWith("... truncated"), true);
+  expectEqual("LLM command output keeps the newest output tail", formatCommandOutput(longOutput, "").endsWith("tail"), true);
 
   // project modification guard
   expectEqual("project path guard allows lib file", mutationGuardReason("/repo", "/repo/lib/main.dart"), undefined);
