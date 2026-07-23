@@ -169,6 +169,70 @@ export async function runSelfTests(cwd: string): Promise<string> {
     false,
   );
 
+  // workflow check orchestration
+  const missingSettingsCtx = createFakeContext(createTemporaryProject());
+  const missingSettingsFeedback = await runWorkflowChecks(createFakePi([]).pi, missingSettingsCtx as never);
+  expectEqual("workflow checks explain missing project settings", missingSettingsFeedback.summaryFeedback.includes("Project test settings not found"), true);
+  expectEqual("workflow checks mark missing settings as failed", lastStatusValue(missingSettingsCtx).startsWith("checks: failed"), true);
+
+  const passingProject = createTemporaryProjectWithSettings();
+  const passingPi = createFakePi([
+    execResult({ stdout: "PASS unit" }),
+    execResult({ stdout: "PASS lint" }),
+    execResult({ stdout: "The working copy has no changes.\n" }),
+  ]);
+  const passingCtx = createFakeContext(passingProject);
+  const passingFeedback = await runWorkflowChecks(passingPi.pi, passingCtx as never);
+  expectEqual("workflow checks run ordered commands before jj bookkeeping", passingPi.calls.map((call) => call.command).join(","), "unit,lint,jj");
+  expectEqual("workflow checks summarize the latest parsed test result", passingFeedback.summaryFeedback, "Tests: 1 passed, 0 failed, 0 skipped");
+  expectEqual("workflow checks mark all-passing checks as passed", lastStatusValue(passingCtx).startsWith("checks: passed"), true);
+
+  const failingCommandPi = createFakePi([execResult({ code: 1, stderr: "compiler error" })]);
+  const failingCommandFeedback = await runWorkflowChecks(failingCommandPi.pi, createFakeContext(createTemporaryProjectWithSettings()) as never);
+  expectEqual("workflow checks stop after a command exits unsuccessfully", failingCommandPi.calls.length, 1);
+  expectEqual("workflow checks show stop reason after command failure", failingCommandFeedback.llmFeedback.includes("Fix checks in order"), true);
+
+  const failingSummaryPi = createFakePi([execResult({ stdout: "FAIL one test" })]);
+  const failingSummaryFeedback = await runWorkflowChecks(failingSummaryPi.pi, createFakeContext(createTemporaryProjectWithSettings()) as never);
+  expectEqual("workflow checks stop when parsed test summary reports failures", failingSummaryPi.calls.length, 1);
+  expectEqual("workflow checks summarize parsed failures even with exit code zero", failingSummaryFeedback.summaryFeedback, "Tests: 0 passed, 1 failed, 0 skipped — parsed failure");
+
+  const explicitStopPi = createFakePi([execResult({ stdout: "STOP after this passed command" })]);
+  const explicitStopFeedback = await runWorkflowChecks(explicitStopPi.pi, createFakeContext(createTemporaryProjectWithSettings()) as never);
+  //expectEqual("workflow checks honor project-defined progressive disclosure stops", explicitStopPi.calls.length, 1);
+  expectEqual("workflow checks report the project-defined stop reason", explicitStopFeedback.llmFeedback.includes("Project asked to stop before later checks."), true);
+
+  const killedPi = createFakePi([execResult({ code: 124, killed: true, stderr: "timeout" })]);
+  const killedFeedback = await runWorkflowChecks(killedPi.pi, createFakeContext(createTemporaryProjectWithSettings()) as never);
+  expectEqual("workflow checks document killed commands in feedback", killedFeedback.llmFeedback.includes("Exit code: 124 (timed out/killed)"), true);
+
+  // jj change management
+  expectEqual("jj change creation waits for an actual passing test summary", await createJjChangeIfNeeded(createFakePi([]).pi, createFakeContext(cwd) as never, undefined), undefined);
+  expectEqual("jj change creation does not run after failed tests", await createJjChangeIfNeeded(createFakePi([]).pi, createFakeContext(cwd) as never, { passed: 1, failed: 1, skipped: 0, total: 2 }), undefined);
+  expectEqual("jj change creation does not run when totals are inconsistent", await createJjChangeIfNeeded(createFakePi([]).pi, createFakeContext(cwd) as never, { passed: 1, failed: 0, skipped: 0, total: 2 }), undefined);
+  const jjStatusFailure = await createJjChangeIfNeeded(createFakePi([execResult({ commandOutput: "status failed", code: 1, stderr: "not a jj repo" })]).pi, createFakeContext(cwd) as never, { passed: 1, failed: 0, skipped: 0, total: 1 });
+  expectEqual("jj change creation reports status failures", jjStatusFailure?.includes("jj status --no-pager"), true);
+  const noChangesPi = createFakePi([execResult({ stdout: "The working copy has no changes.\n" })]);
+  expectEqual("jj change creation leaves clean working copies alone", await createJjChangeIfNeeded(noChangesPi.pi, createFakeContext(cwd) as never, { passed: 1, failed: 0, skipped: 0, total: 1 }), undefined);
+  const jjLogFailure = await createJjChangeIfNeeded(createFakePi([execResult({ stdout: "M file\n" }), execResult({ code: 1, stderr: "log failed" })]).pi, createFakeContext(cwd) as never, { passed: 1, failed: 0, skipped: 0, total: 1 });
+  expectEqual("jj change creation reports description lookup failures", jjLogFailure?.includes("jj log -r @ --no-graph -T description"), true);
+  const describePi = createFakePi([execResult({ stdout: "M file\n" }), execResult({ stdout: "\n" }), execResult(), execResult({ stdout: "created new change" })]);
+  const describedChange = await createJjChangeIfNeeded(describePi.pi, createFakeContext(cwd) as never, { passed: 2, failed: 0, skipped: 1, total: 3 });
+  expectEqual("jj change creation describes anonymous passing changes", describePi.calls.map((call) => call.args.join(" ")).includes("describe -m Tests: 2 passed, 0 failed, 1 skipped"), true);
+  expectEqual("jj change creation reports the description it wrote", describedChange?.includes("Description: Tests: 2 passed, 0 failed, 1 skipped"), true);
+  const existingDescriptionPi = createFakePi([execResult({ stdout: "M file\n" }), execResult({ stdout: "Keep my description\n" }), execResult({ stdout: "created new change" })]);
+  const preservedDescription = await createJjChangeIfNeeded(existingDescriptionPi.pi, createFakeContext(cwd) as never, { passed: 1, failed: 0, skipped: 0, total: 1 });
+  expectEqual("jj change creation preserves existing descriptions", preservedDescription?.includes("Existing description preserved: Keep my description"), true);
+  expectEqual("jj change creation skips describe when a description already exists", existingDescriptionPi.calls.some((call) => call.args[0] === "describe"), false);
+
+  // project settings loader
+  const absentSettingsProject = createTemporaryProject();
+  expectEqual("project settings loader returns undefined when the settings file is absent", await loadProjectTestSettings(absentSettingsProject), undefined);
+  const presentSettingsProject = createTemporaryProject();
+  mkdirSync(join(presentSettingsProject, ".pi"), { recursive: true });
+  writeFileSync(join(presentSettingsProject, ".pi", "project-test-settings.ts"), "export default { checkCommands: [], isProjectRepository: () => true, evaluateCheck: () => ({ output: 'ok' }) };\n");
+  expectEqual("project settings loader imports the project-local settings module", (await loadProjectTestSettings(presentSettingsProject))?.isProjectRepository(presentSettingsProject), true);
+
   const projectTestSettings = await loadProjectTestSettings(cwd);
   const projectSettingsResult = projectTestSettings?.runSelfTests?.();
   return [`TDD workflow helper self-tests passed (${assertionCount()} assertions).`, projectSettingsResult]
@@ -189,5 +253,99 @@ function createExpectEqual(): [<T>(name: string, actual: T, expected: T) => void
     },
     () => assertionCount,
   ];
+}
+
+type FakeExecResult = {
+  code: number;
+  killed: boolean;
+  stdout: string;
+  stderr: string;
+};
+
+type FakeExecCall = {
+  command: string;
+  args: string[];
+};
+
+function execResult(overrides: Partial<FakeExecResult> & { commandOutput?: string } = {}): FakeExecResult {
+  return {
+    code: overrides.code ?? 0,
+    killed: overrides.killed ?? false,
+    stdout: overrides.stdout ?? overrides.commandOutput ?? "",
+    stderr: overrides.stderr ?? "",
+  };
+}
+
+function createFakePi(results: FakeExecResult[]): { pi: { exec(command: string, args: string[]): Promise<FakeExecResult> }; calls: FakeExecCall[] } {
+  const calls: FakeExecCall[] = [];
+  return {
+    calls,
+    pi: {
+      exec: async (command: string, args: string[]) => {
+        calls.push({ command, args });
+        return results.shift() ?? execResult();
+      },
+    },
+  };
+}
+
+function createFakeContext(cwd: string) {
+  const statuses: Array<{ key: string; value: string }> = [];
+  return {
+    cwd,
+    signal: undefined,
+    statuses,
+    ui: {
+      setStatus: (key: string, value: string) => statuses.push({ key, value }),
+    },
+  };
+}
+
+function lastStatusValue(ctx: { statuses: Array<{ value: string }> }): string {
+  return ctx.statuses[ctx.statuses.length - 1]?.value ?? "";
+}
+
+function createTemporaryProject(): string {
+  return mkdtempSync(join(tmpdir(), "pi-tdd-workflow-helper-test-"));
+}
+
+function createTemporaryProjectWithSettings(): string {
+  const project = createTemporaryProject();
+  mkdirSync(join(project, ".pi"), { recursive: true });
+  writeFileSync(
+    join(project, ".pi", "project-test-settings.ts"),
+    `export default {
+  checkCommands: [
+    { label: "unit tests", command: "unit", args: [], timeout: 1000, kind: "test" },
+    { label: "lint", command: "lint", args: [], timeout: 1000, kind: "lint" },
+  ],
+  isProjectRepository: () => true,
+  evaluateCheck: ({ check, stdout, stderr, ok, formatCommandOutput }) => {
+    if (stdout.includes("FAIL")) {
+      return {
+        output: "First parsed failure only, so the agent fixes one thing at a time.",
+        testSummary: { passed: 0, failed: 1, skipped: 0, total: 1, msg: "parsed failure" },
+        continueChecks: false,
+        stopReason: "Showing details for only the first failing test.",
+      };
+    }
+    if (stdout.includes("STOP")) {
+      return {
+        output: "This passed, but later checks are intentionally hidden.",
+        testSummary: { passed: 1, failed: 0, skipped: 0, total: 1 },
+        continueChecks: false,
+        stopReason: "Project asked to stop before later checks.",
+      };
+    }
+    return {
+      output: ok ? check.label + " accepted " + stdout : formatCommandOutput(stdout, stderr),
+      testSummary: check.kind === "test" ? { passed: ok ? 1 : 0, failed: ok ? 0 : 1, skipped: 0, total: 1 } : undefined,
+      continueChecks: ok,
+    };
+  },
+};
+`,
+  );
+  return project;
 }
 
