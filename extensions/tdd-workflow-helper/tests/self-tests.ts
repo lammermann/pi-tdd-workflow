@@ -11,6 +11,7 @@ import { guardedMutationRejectionMessage, mutationGuardReason, resolveMutationTa
 import { formatCommandOutput, formatFullCommandOutput } from "../output";
 import { loadProjectTestSettings } from "../project-settings";
 import { createFakeContext, createFakePi, documentedWorkflowSettings, execResult, lastStatusValue } from "./fake-utils";
+import { runIndexRegistrationTests } from "./index-registration-tests";
 import { runWorkflowControllerTests } from "./workflow-controller-tests";
 
 /** Runs fast unit tests for the extension's pure formatting/parsing logic. */
@@ -225,6 +226,7 @@ export async function runSelfTests(cwd: string): Promise<string> {
   expectEqual("jj change creation skips describe when a description already exists", existingDescriptionPi.calls.some((call) => call.args[0] === "describe"), false);
 
   await runWorkflowControllerTests(expectEqual);
+  await runIndexRegistrationTests(expectEqual);
 
   const projectTestSettings = await loadProjectTestSettings(cwd);
   const projectSettingsResult = projectTestSettings?.runSelfTests?.();
