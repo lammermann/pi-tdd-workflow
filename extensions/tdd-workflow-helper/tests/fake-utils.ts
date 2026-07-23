@@ -34,14 +34,49 @@ export function createFakePi(results: FakeExecResult[]): { pi: { exec(command: s
   };
 }
 
-export function createFakeContext(cwd: string) {
+export function createFakeContext(cwd: string, options: { hasUI?: boolean; confirmResult?: boolean } = {}) {
   const statuses: Array<{ key: string; value: string }> = [];
+  const notifications: Array<{ message: string; level: string }> = [];
+  const confirmations: Array<{ title: string; message: string }> = [];
   return {
     cwd,
+    hasUI: options.hasUI ?? true,
     signal: undefined,
     statuses,
+    notifications,
+    confirmations,
     ui: {
       setStatus: (key: string, value: string) => statuses.push({ key, value }),
+      notify: (message: string, level: string) => notifications.push({ message, level }),
+      confirm: async (title: string, message: string) => {
+        confirmations.push({ title, message });
+        return options.confirmResult ?? true;
+      },
+    },
+  };
+}
+
+export function createFakeExtensionPi(options: { activeTools?: string[]; execResults?: FakeExecResult[] } = {}) {
+  let activeTools = [...(options.activeTools ?? [])];
+  const sentMessages: Array<{ message; options? }> = [];
+  const activeToolHistory: string[][] = [];
+  const execFake = createFakePi(options.execResults ?? []);
+
+  return {
+    ...execFake,
+    sentMessages,
+    activeToolHistory,
+    pi: {
+      ...execFake.pi,
+      getActiveTools: () => activeTools,
+      setActiveTools: (tools: string[]) => {
+        activeTools = [...tools];
+        activeToolHistory.push([...tools]);
+      },
+      sendMessage: (message, messageOptions?) => sentMessages.push({ message, options: messageOptions }),
+    },
+    get activeTools() {
+      return activeTools;
     },
   };
 }

@@ -1,26 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { runWorkflowChecks } from "./checks";
-import {
-  formatDisabledWorkflowTools,
-  parseSupervisionModeCommand,
-  parseWorkflowToggleAction,
-  parseWorkflowToolCommand,
-  workflowStatusMessage,
-} from "./commands";
-import {
-  guardedMutationRejectionMessage,
-  mutationGuardReason,
-  resolveMutationTargetPath,
-} from "./mutation-guard";
 import { loadProjectTestSettings } from "./project-settings";
 import { runSelfTests } from "./tests/self-tests";
-import {
-  DEFAULT_PROJECT_TEST_SETTINGS_PATH,
-  DEFAULT_WORKFLOW_DISABLED_TOOLS,
-  MUTATION_TOOLS,
-} from "./types";
-import type { SupervisionMode } from "./types";
+import { WorkflowController } from "./workflow-controller";
 export type {
   CheckCommand,
   CheckEvaluation,
@@ -41,252 +24,42 @@ function renderWorkflowChecksMessage(message: { content?: unknown; details?: unk
 }
 
 export default function (pi: ExtensionAPI) {
+  const controller = new WorkflowController(pi, {
+    loadProjectTestSettings,
+    runWorkflowChecks,
+    runSelfTests,
+  });
+
   pi.registerMessageRenderer("tdd-workflow-checks", (message, options) =>
     renderWorkflowChecksMessage(message, options.expanded),
   );
 
-  /** Serializes checks so parallel edit/write tool calls do not run project checks concurrently. */
-  let checkQueue: Promise<{ summaryFeedback: string; llmFeedback: string; userFeedback: string }> = Promise.resolve({
-    summaryFeedback: "",
-    llmFeedback: "",
-    userFeedback: "",
-  });
-
-  /** Session-local toggle for automatic checks after file mutation tools. */
-  let workflowEnabled = false;
-
-  /** Session-local override for whether mutation tools should be considered supervised. */
-  let supervisionMode: SupervisionMode = "auto";
-
-  /** Tool names disabled while the workflow is active. */
-  const workflowDisabledTools = new Set(DEFAULT_WORKFLOW_DISABLED_TOOLS);
-
-  /** Active tool names captured before applying the workflow tool policy. */
-  let activeToolsBeforeWorkflow: string[] | undefined;
-
-  pi.on("session_start", async (_event, ctx) => {
-    const projectTestSettings = await loadProjectTestSettings(ctx.cwd);
-    workflowEnabled = projectTestSettings?.isProjectRepository(ctx.cwd) ?? false;
-    applyWorkflowToolPolicy(workflowEnabled);
-    ctx.ui.setStatus("tdd-workflow", workflowEnabled ? "workflow: on" : "workflow: off");
-    ctx.ui.setStatus("tdd-supervision", `supervision: ${supervisionMode}`);
-
-    if (ctx.hasUI) {
-      ctx.ui.notify(
-        workflowEnabled
-          ? "TDD workflow helper loaded: write/edit tools will trigger checks."
-          : `TDD workflow helper loaded without active project settings at ${DEFAULT_PROJECT_TEST_SETTINGS_PATH}.`,
-        "info",
-      );
-    }
-  });
+  pi.on("session_start", (event, ctx) => controller.onSessionStart(event, ctx));
+  pi.on("tool_call", (event, ctx) => controller.handleToolCall(event, ctx));
+  pi.on("tool_result", (event, ctx) => controller.handleToolResult(event, ctx));
 
   pi.registerCommand("tdd-workflow", {
     description: "Enable, disable, or show status for automatic TDD workflow checks",
-    handler: async (args, ctx) => {
-      const action = parseWorkflowToggleAction(args);
-
-      if (action === undefined) {
-        ctx.ui.notify("Usage: /tdd-workflow [on|off|status]", "error");
-        return;
-      }
-
-      if (action === "on") {
-        workflowEnabled = true;
-      } else if (action === "off") {
-        workflowEnabled = false;
-      }
-
-      applyWorkflowToolPolicy(workflowEnabled);
-      ctx.ui.setStatus("tdd-workflow", workflowEnabled ? "workflow: on" : "workflow: off");
-      ctx.ui.notify(workflowStatusMessage(workflowEnabled), "info");
-    },
+    handler: (args, ctx) => controller.handleWorkflowCommand(args, ctx),
   });
 
   pi.registerCommand("tdd-workflow-supervision", {
     description: "Set whether edit/write tools are supervised, unsupervised, or auto-detected",
-    handler: async (args, ctx) => {
-      const command = parseSupervisionModeCommand(args);
-
-      if (command === undefined) {
-        ctx.ui.notify("Usage: /tdd-workflow-supervision [auto|supervised|unsupervised|status]", "error");
-        return;
-      }
-
-      if (command.action !== "status") {
-        supervisionMode = command.action;
-      }
-
-      ctx.ui.setStatus("tdd-supervision", `supervision: ${supervisionMode}`);
-      ctx.ui.notify(`TDD workflow supervision mode is ${supervisionMode}.`, "info");
-    },
+    handler: (args, ctx) => controller.handleSupervisionCommand(args, ctx),
   });
 
   pi.registerCommand("tdd-workflow-tools", {
     description: "Configure tools disabled while the TDD workflow is active",
-    handler: async (args, ctx) => {
-      const command = parseWorkflowToolCommand(args);
-
-      if (command === undefined) {
-        ctx.ui.notify("Usage: /tdd-workflow-tools [status|disable <tool>|enable <tool>]", "error");
-        return;
-      }
-
-      if (command.action === "disable" && command.tool !== undefined) {
-        workflowDisabledTools.add(command.tool);
-      } else if (command.action === "enable" && command.tool !== undefined) {
-        workflowDisabledTools.delete(command.tool);
-      }
-
-      if (workflowEnabled) {
-        pi.setActiveTools(activeToolsBeforeWorkflow ?? getActiveToolNames());
-        activeToolsBeforeWorkflow = undefined;
-        applyWorkflowToolPolicy(true);
-      }
-
-      ctx.ui.notify(
-        `Workflow-disabled tools: ${formatDisabledWorkflowTools(workflowDisabledTools)}.`,
-        "info",
-      );
-    },
+    handler: (args, ctx) => controller.handleToolsCommand(args, ctx),
   });
 
   pi.registerCommand("tdd-workflow-checks", {
     description: "Run the TDD workflow checks without editing files",
-    handler: async (_args, ctx) => {
-      const feedback = await runWorkflowChecks(pi, ctx);
-      pi.sendMessage({
-        customType: "tdd-workflow-checks",
-        content: feedback.summaryFeedback,
-        display: true,
-        details: { userFeedback: feedback.userFeedback },
-      });
-      pi.sendMessage({
-        customType: "tdd-workflow-checks-llm",
-        content: feedback.llmFeedback,
-        display: false,
-      });
-    },
+    handler: (args, ctx) => controller.handleChecksCommand(args, ctx),
   });
 
   pi.registerCommand("tdd-workflow-helper-test", {
     description: "Run fast unit tests for the TDD workflow helper extension",
-    handler: async (_args, ctx) => {
-      try {
-        const result = await runSelfTests(ctx.cwd);
-        if (!ctx.hasUI) {
-          process.stderr.write(`${result}\n`);
-        }
-        ctx.ui.notify(result, "info");
-        pi.sendMessage(
-          {
-            customType: "tdd-workflow-helper-test",
-            content: result,
-            display: true,
-          },
-          { deliverAs: "nextTurn" },
-        );
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        ctx.ui.notify(`TDD workflow helper self-tests failed: ${message}`, "error");
-        throw error;
-      }
-    },
+    handler: (args, ctx) => controller.handleHelperTestCommand(args, ctx),
   });
-
-  pi.on("tool_call", async (event, ctx) => {
-    if (!MUTATION_TOOLS.has(event.toolName)) {
-      return;
-    }
-
-    const projectTestSettings = await loadProjectTestSettings(ctx.cwd);
-    const targetPath = resolveMutationTargetPath(ctx.cwd, event.input);
-    if (targetPath === undefined) {
-      return;
-    }
-
-    const reason = mutationGuardReason(ctx.cwd, targetPath, projectTestSettings?.guardedPaths);
-    if (reason === undefined) {
-      return;
-    }
-
-    if (isUnsupervisedMode(ctx)) {
-      const rejectionMessage = guardedMutationRejectionMessage(reason);
-      const alwaysReject =
-        rejectionMessage.startsWith("Modification of tests rejected.") ||
-        rejectionMessage.startsWith("Modifications outside the project are not permitted.");
-
-      if (alwaysReject) {
-        return { block: true, reason: rejectionMessage };
-      }
-    }
-
-    const approved = await ctx.ui.confirm("Guarded file modification", `Allow pi to ${reason}?`);
-    if (!approved) {
-      return { block: true, reason: reason };
-    }
-  });
-
-  pi.on("tool_result", async (event, ctx) => {
-    if (!workflowEnabled || !MUTATION_TOOLS.has(event.toolName) || event.isError) {
-      return;
-    }
-
-    checkQueue = checkQueue
-      .catch(() => ({ summaryFeedback: "", llmFeedback: "", userFeedback: "" }))
-      .then(() => runWorkflowChecks(pi, ctx));
-
-    const feedback = await checkQueue;
-    if (ctx.hasUI) {
-      ctx.ui.notify(feedback.userFeedback, "info");
-    }
-
-    return {
-      content: [
-        ...event.content,
-        {
-          type: "text" as const,
-          text: feedback.llmFeedback,
-        },
-      ],
-      details: {
-        ...event.details,
-        tddWorkflowChecks: feedback.llmFeedback,
-      },
-    };
-  });
-
-  /** ==================================================================== */
-  /** Helper functions */
-
-  /** Reads active tool names, normalizing possible tool metadata objects. */
-  function getActiveToolNames(): string[] {
-    const activeTools = pi.getActiveTools() as unknown as Array<string | { name: string }>;
-    return activeTools.map((tool) => (typeof tool === "string" ? tool : tool.name));
-  }
-
-  /** Applies or restores the active-tool policy associated with the workflow. */
-  function applyWorkflowToolPolicy(enabled: boolean): void {
-    if (enabled) {
-      activeToolsBeforeWorkflow ??= getActiveToolNames();
-      pi.setActiveTools(getActiveToolNames().filter((toolName) => !workflowDisabledTools.has(toolName)));
-      return;
-    }
-
-    if (activeToolsBeforeWorkflow !== undefined) {
-      pi.setActiveTools(activeToolsBeforeWorkflow);
-      activeToolsBeforeWorkflow = undefined;
-    }
-  }
-
-  function isUnsupervisedMode(ctx): boolean {
-    if (supervisionMode === "unsupervised") {
-      return true;
-    }
-    if (supervisionMode === "auto" && !ctx.hasUI) {
-      return true;
-    }
-
-    return false;
-  }
 }

@@ -11,6 +11,7 @@ import { guardedMutationRejectionMessage, mutationGuardReason, resolveMutationTa
 import { formatCommandOutput, formatFullCommandOutput } from "../output";
 import { loadProjectTestSettings } from "../project-settings";
 import { createFakeContext, createFakePi, documentedWorkflowSettings, execResult, lastStatusValue } from "./fake-utils";
+import { runWorkflowControllerTests } from "./workflow-controller-tests";
 
 /** Runs fast unit tests for the extension's pure formatting/parsing logic. */
 export async function runSelfTests(cwd: string): Promise<string> {
@@ -222,6 +223,8 @@ export async function runSelfTests(cwd: string): Promise<string> {
   const preservedDescription = await createJjChangeIfNeeded(existingDescriptionPi.pi, createFakeContext(cwd) as never, { passed: 1, failed: 0, skipped: 0, total: 1 });
   expectEqual("jj change creation preserves existing descriptions", preservedDescription?.includes("Existing description preserved: Keep my description"), true);
   expectEqual("jj change creation skips describe when a description already exists", existingDescriptionPi.calls.some((call) => call.args[0] === "describe"), false);
+
+  await runWorkflowControllerTests(expectEqual);
 
   const projectTestSettings = await loadProjectTestSettings(cwd);
   const projectSettingsResult = projectTestSettings?.runSelfTests?.();
