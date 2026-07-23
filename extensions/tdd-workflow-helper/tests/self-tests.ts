@@ -13,6 +13,7 @@ import { loadProjectTestSettings } from "../project-settings";
 import { createFakeContext, createFakePi, documentedWorkflowSettings, execResult, lastStatusValue } from "./fake-utils";
 import { runIndexRegistrationTests } from "./index-registration-tests";
 import { runWorkflowControllerTests } from "./workflow-controller-tests";
+import { runWorkflowRendererTests } from "./workflow-renderer-tests";
 
 /** Runs fast unit tests for the extension's pure formatting/parsing logic. */
 export async function runSelfTests(cwd: string): Promise<string> {
@@ -227,6 +228,7 @@ export async function runSelfTests(cwd: string): Promise<string> {
 
   await runWorkflowControllerTests(expectEqual);
   await runIndexRegistrationTests(expectEqual);
+  await runWorkflowRendererTests(expectEqual);
 
   const projectTestSettings = await loadProjectTestSettings(cwd);
   const projectSettingsResult = projectTestSettings?.runSelfTests?.();

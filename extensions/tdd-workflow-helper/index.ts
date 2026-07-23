@@ -1,9 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
 import { runWorkflowChecks } from "./checks";
 import { loadProjectTestSettings } from "./project-settings";
 import { runSelfTests } from "./tests/self-tests";
 import { WorkflowController } from "./workflow-controller";
+import { renderWorkflowChecksMessage } from "./workflow-renderer";
 export type {
   CheckCommand,
   CheckEvaluation,
@@ -11,17 +11,6 @@ export type {
   SupervisionMode,
   WorkflowTestSummary,
 } from "./types";
-
-type WorkflowChecksMessageDetails = {
-  userFeedback?: string;
-};
-
-function renderWorkflowChecksMessage(message: { content?: unknown; details?: unknown }, expanded?: boolean): Text {
-  const details = message.details as WorkflowChecksMessageDetails | undefined;
-  const content = typeof message.content === "string" ? message.content : "";
-  const expandedContent = typeof details?.userFeedback === "string" ? details.userFeedback : content;
-  return new Text(expanded ? expandedContent : content, 0, 0);
-}
 
 export default function (pi: ExtensionAPI) {
   const controller = new WorkflowController(pi, {
