@@ -4,7 +4,7 @@ import type { WorkflowTestSummary } from "./types";
 
 /** Describes the working-copy commit and starts a new jj change when tests passed. */
 export async function createJjChangeIfNeeded(
-  pi: ExtensionAPI,
+  pi: Pick<ExtensionAPI, "exec">,
   ctx: ExtensionContext,
   testSummary: WorkflowTestSummary | undefined,
 ): Promise<string | undefined> {

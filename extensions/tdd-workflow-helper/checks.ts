@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { createJjChangeIfNeeded } from "./jj";
 import { formatCommandOutput, formatFullCommandOutput } from "./output";
 import { loadProjectTestSettings } from "./project-settings";
-import { DEFAULT_PROJECT_TEST_SETTINGS_PATH, type WorkflowTestSummary } from "./types";
+import { DEFAULT_PROJECT_TEST_SETTINGS_PATH, type ProjectTestSettings, type WorkflowTestSummary } from "./types";
 
 export type WorkflowCheckFeedback = {
   summaryFeedback: string;
@@ -66,6 +66,15 @@ export function buildWorkflowCheckFeedback(args: {
 
 /** Runs workflow checks in order until the first failure and returns concise LLM plus full user-visible feedback. */
 export async function runWorkflowChecks(pi: ExtensionAPI, ctx: ExtensionContext): Promise<WorkflowCheckFeedback> {
+  return runWorkflowChecksWithSettings(pi, ctx, await loadProjectTestSettings(ctx.cwd));
+}
+
+/** In-memory workflow check core. Production loads settings from disk; tests can pass settings directly as documentation. */
+export async function runWorkflowChecksWithSettings(
+  pi: Pick<ExtensionAPI, "exec">,
+  ctx: ExtensionContext,
+  projectTestSettings: ProjectTestSettings | undefined,
+): Promise<WorkflowCheckFeedback> {
   const startedAt = Date.now();
   const llmSections: string[] = ["## TDD workflow checks"];
   const userSections: string[] = ["## TDD workflow checks"];
@@ -75,7 +84,6 @@ export async function runWorkflowChecks(pi: ExtensionAPI, ctx: ExtensionContext)
   ctx.ui.setStatus("tdd-workflow-checks", "checks: running");
 
   try {
-    const projectTestSettings = await loadProjectTestSettings(ctx.cwd);
     if (projectTestSettings === undefined) {
       failed = true;
       const message = `Project test settings not found at ${DEFAULT_PROJECT_TEST_SETTINGS_PATH}.`;
