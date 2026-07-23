@@ -50,6 +50,12 @@ export async function runSelfTests(cwd: string): Promise<string> {
   expectEqual("LLM command output keeps the newest output tail", formatCommandOutput(longOutput, "").endsWith("tail"), true);
 
   // project modification guard
+  expectEqual("mutation target ignores non-object input", resolveMutationTargetPath("/repo", "not an object"), undefined);
+  expectEqual("mutation target ignores missing path", resolveMutationTargetPath("/repo", {}), undefined);
+  expectEqual("mutation target ignores blank path", resolveMutationTargetPath("/repo", { path: "   " }), undefined);
+  expectEqual("mutation target resolves project-relative paths", resolveMutationTargetPath("/repo", { path: "lib/main.dart" }), resolve("/repo/lib/main.dart"));
+  expectEqual("mutation target preserves absolute paths", resolveMutationTargetPath("/repo", { path: "/tmp/file.txt" }), resolve("/tmp/file.txt"));
+  expectEqual("mutation target strips pi attachment marker", resolveMutationTargetPath("/repo", { path: "@lib/main.dart" }), resolve("/repo/lib/main.dart"));
   expectEqual("project path guard allows lib file", mutationGuardReason("/repo", "/repo/lib/main.dart"), undefined);
   expectEqual(
     "project path guard catches outside file",
@@ -60,6 +66,16 @@ export async function runSelfTests(cwd: string): Promise<string> {
     "project path guard catches test file",
     mutationGuardReason("/repo", "/repo/test/foo_test.dart"),
     "modify guarded test file: test/foo_test.dart",
+  );
+  expectEqual(
+    "project path guard catches top-level test directory itself",
+    mutationGuardReason("/repo", "/repo/test"),
+    "modify guarded test file: test",
+  );
+  expectEqual(
+    "project path guard catches top-level tests directory itself",
+    mutationGuardReason("/repo", "/repo/tests"),
+    "modify guarded test file: tests",
   );
   expectEqual(
     "project path guard catches project test settings",
@@ -76,6 +92,16 @@ export async function runSelfTests(cwd: string): Promise<string> {
     mutationGuardReason("/repo", "/repo/extensions/helper/tests/self-tests.ts", ["extensions/**/tests/**"]),
     "modify configured guarded file: extensions/helper/tests/self-tests.ts",
   );
+  expectEqual(
+    "project path guard supports simple configured globs",
+    mutationGuardReason("/repo", "/repo/package.json", ["*.json"]),
+    "modify configured guarded file: package.json",
+  );
+  expectEqual(
+    "project path guard leaves non-matching configured globs alone",
+    mutationGuardReason("/repo", "/repo/package.json", ["*.ts"]),
+    undefined,
+  );
   // TODO test different reaction in supervised and unsupervised mode
   expectEqual(
     "test modification rejection gives implementation guidance",
@@ -91,6 +117,11 @@ export async function runSelfTests(cwd: string): Promise<string> {
     "outside project rejection forbids retries",
     guardedMutationRejectionMessage("modify file outside the project directory: /tmp/file.txt"),
     "Modifications outside the project are not permitted. Do not try it again.",
+  );
+  expectEqual(
+    "project settings rejection explains the specific guarded reason",
+    guardedMutationRejectionMessage("modify guarded project test settings file: .pi/project-test-settings.ts"),
+    "Modification rejected because this path is guarded: modify guarded project test settings file: .pi/project-test-settings.ts",
   );
 
   // workflow feedback
